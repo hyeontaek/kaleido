@@ -85,15 +85,24 @@ def update_env(directory, meta):
     os.environ['GIT_WORK_TREE'] = directory
 
 def main():
-    usage = 'usage: %prog [--meta <directory>] [{--init | --clone <repository>}] [--serve [<address>:]<port>] [--no-sync | --sync-forever] <directory>'
+    usage = 'usage: %prog [--meta <directory>] {--custom <git-command> | [{--init | --clone <repository>}] [--serve [<address>:]<port>] [--no-sync | --sync-forever] <directory>}'
     parser = optparse.OptionParser(usage=usage)
     parser.add_option('-m', '--meta', dest='meta', default=META_DEFAULT)
+    parser.add_option('-U', '--usercmd', dest='usercmd', action='store_true', default=False)
     parser.add_option('-i', '--init', dest='init', action='store_true', default=False)
     parser.add_option('-c', '--clone', dest='clone', default=None)
     parser.add_option('-s', '--serve', dest='serve', default=None)
     parser.add_option('-0', '--no-sync', dest='no_sync', action='store_true', default=False)
     parser.add_option('-f', '--sync-forever', dest='sync_forever', action='store_true', default=False)
     (options, args) = parser.parse_args()
+
+    if options.usercmd:
+        args = []
+        for idx, arg in enumerate(sys.argv):
+            if arg == '-U' or arg == '--custom':
+                args = sys.argv[idx + 1:]
+                break
+        return 0 if run_git(args)[0] else 1
 
     if len(args) != 1:
         parser.error('directory must be given')
@@ -162,7 +171,7 @@ def main():
                         '--enable=upload-pack', '--enable=upload-archive', '--enable=receive-pack',
                         '--listen=' + address, '--port=' + port,
                         '--base-path=' + os.path.abspath(directory),
-                        os.path.abspath(os.path.join(directory, options.meta))])
+                        os.path.abspath(os.path.join(directory, options.meta))],)
             )
         t_serve.start()
 
