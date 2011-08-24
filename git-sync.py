@@ -48,7 +48,7 @@ def move_output(src, dst, tee=None):
         if tee: tee.write(s)
     src.close()
 
-def run(git_path, args, print_stdout=True, print_stderr=True, modify_path=True, fatal=False):
+def run(git_path, args, print_stdout=True, print_stderr=True, fatal=False):
     p = subprocess.Popen([git_path] + args, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
     p.stdin.close()
@@ -76,8 +76,8 @@ def detect_git_version(git_path):
     version = tuple([int(x) for x in version.split('.')[:4]])
     return version
 
-def list_git_branches(git_path, path_args):
-    for line in run(git_path, path_args + ['branch', '--no-color'], False, False)[1].splitlines():
+def list_git_branches(git_path, git_common_optionss):
+    for line in run(git_path, git_common_optionss + ['branch', '--no-color'], False, False)[1].splitlines():
         yield line[2:].strip()
 
 def get_path_args(directory, meta):
@@ -94,6 +94,7 @@ def main():
     parser.add_option('-s', '--serve', dest='serve', default=None)
     parser.add_option('-0', '--no-sync', dest='no_sync', action='store_true', default=False)
     parser.add_option('-f', '--sync-forever', dest='sync_forever', action='store_true', default=False)
+    parser.add_option('-q', '--quiet', dest='quiet', action='store_true', default=False)
     (options, args) = parser.parse_args()
 
     if options.usercmd:
@@ -104,8 +105,10 @@ def main():
                 break
         return 0 if run(options.git, args)[0] else 1
 
-    if len(args) != 1:
-        parser.error('directory must be given')
+    if len(args) == 0:
+        args = ['.']
+    elif len(args) >= 2:
+        parser.error('too many arguments are given')
         parser.print_help()
         return 1
 
@@ -122,13 +125,20 @@ def main():
     directory = args[0]
     path_args = get_path_args(directory, options.meta)
 
+    if options.quiet:
+        git_common_options = path_args + ['--quiet']
+        git_common_options_clean = ['--quiet']
+    else:
+        git_common_options = path_args
+        git_common_options_clean = []
+
     if options.init:
         if os.path.exists(os.path.join(directory, options.meta)):
             print('warning: meta directory already exists; ignoring --init')
         else:
-            run(options.git, ['init', '--bare', os.path.join(directory, options.meta)], fatal=True)
-            run(options.git, path_args + ['config', 'core.bare', 'false'], fatal=True)
-            run(options.git, path_args + ['commit', '--author="sync <sync@sync>"', '--message=""', '--allow-empty'], True, fatal=True)
+            run(options.git, git_common_options_clean + ['init', '--bare', os.path.join(directory, options.meta)], fatal=True)
+            run(options.git, git_common_options + ['config', 'core.bare', 'false'], fatal=True)
+            run(options.git, git_common_options + ['commit', '--author="sync <sync@sync>"', '--message=""', '--allow-empty'], fatal=True)
             open(os.path.join(directory, options.meta, 'info', 'exclude'), 'at').write(options.meta + '\n')
             open(os.path.join(directory, options.meta, 'git-daemon-export-ok'), 'wb')
             inbox_id = '%d_%d' % (time.time(), random.randint(0, 999999))
@@ -140,14 +150,16 @@ def main():
             print('warning: meta directory already exists; ignoring --clone')
         else:
             url = options.clone.rstrip('/') + '/' + options.meta
-            run(options.git, path_args + ['clone', '--bare', url, os.path.join(directory, options.meta)], fatal=True)
-            run(options.git, path_args + ['config', 'core.bare', 'false'], fatal=True)
-            run(options.git, path_args + ['config', 'remote.origin.url', url], fatal=True)
+            if url.find('://') == -1:
+                url = os.path.abspath(url)
+            run(options.git, git_common_options + ['clone', '--bare', url, os.path.join(directory, options.meta)], fatal=True)
+            run(options.git, git_common_options + ['config', 'core.bare', 'false'], fatal=True)
+            run(options.git, git_common_options + ['config', 'remote.origin.url', url], fatal=True)
             open(os.path.join(directory, options.meta, 'info', 'exclude'), 'at').write(options.meta + '\n')
             open(os.path.join(directory, options.meta, 'git-daemon-export-ok'), 'wb')
             inbox_id = '%d_%d' % (time.time(), random.randint(0, 999999))
             open(os.path.join(directory, options.meta, 'inbox-id'), 'wb').write(inbox_id)
-            run(options.git, path_args + ['checkout'], fatal=True)
+            run(options.git, git_common_options + ['checkout'], fatal=True)
             return 0
 
     if not os.path.exists(os.path.join(directory, options.meta)):
@@ -164,7 +176,7 @@ def main():
             port = options.serve
         t_serve = threading.Thread(
                 target=run,
-                args=(options.git, path_args + ['daemon', '--strict-paths', '--reuseaddr',
+                args=(options.git, git_common_options + ['daemon', '--strict-paths', '--reuseaddr',
                         '--enable=upload-pack', '--enable=upload-archive', '--enable=receive-pack',
                         '--listen=' + address, '--port=' + port,
                         '--base-path=' + os.path.abspath(directory),
@@ -178,29 +190,33 @@ def main():
     else:
         git_strategy_option = []
     
-    if run(options.git, ['config', '--get', 'remote.origin.url'], False)[0]:
+    if run(options.git, git_common_options + ['config', '--get', 'remote.origin.url'], False)[0]:
         git_pushable = True
     else:
         git_pushable = False
 
-    while options.sync_forever:
+    while True:
         # merge local sync_inbox_* into local master
-        for branch in list_git_branches(options.git, path_args):
+        for branch in list_git_branches(options.git, git_common_options):
             if not branch.startswith('sync_inbox_'):
                 continue
-            run(options.git, path_args + ['merge', '--quiet', '--strategy=recursive'] + git_strategy_option + [branch])
+            run(options.git, git_common_options + ['merge', '--quiet', '--strategy=recursive'] + git_strategy_option + [branch])
 
         # commit local changes to local master
-        run(options.git, path_args + ['add', '--all'])
-        run(options.git, path_args + ['commit', '--author="sync <sync@sync>"', '--message=""'], False)
+        run(options.git, git_common_options + ['add', '--all'])
+        run(options.git, git_common_options + ['commit', '--author="sync <sync@sync>"', '--message=""'], print_stdout=(not options.quiet))
 
         if git_pushable:
             # push local master to remote sync_inbox_ID for remote merge
-            run(options.git, path_args + ['push', '--quiet', 'origin', 'master:sync_inbox_%d' % inbox_id], False)
+            run(options.git, git_common_options + ['push', '--quiet', 'origin', 'master:sync_inbox_%s' % inbox_id], print_stdout=(not options.quiet))
             # fetch remote master to local sync_inbox_origin for local merge
-            run(options.git, path_args + ['fetch', '--quiet', 'origin', 'master:sync_inbox_origin'])
+            run(options.git, git_common_options + ['fetch', '--quiet', 'origin', 'master:sync_inbox_origin'])
 
-        time.sleep(1)
+        if options.sync_forever:
+            time.sleep(1)
+            continue
+        else:
+            break
 
     return 0
 
