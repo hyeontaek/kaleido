@@ -84,7 +84,7 @@ def get_path_args(directory, meta):
     return ['--git-dir=' + os.path.join(directory, meta), '--work-tree=' + directory]
 
 def main():
-    usage = 'usage: %prog [--meta <directory>] {--usercmd <git-command> | [{--init | --clone <repository>}] [--serve [<address>:]<port>] [--no-sync | --sync-forever] <directory>}'
+    usage = 'usage: %prog [--meta <directory>] {--usercmd <git-command> | [{--init | --clone <repository>}] [--serve [<address>:]<port> | --sync-forever] <directory>}'
     parser = optparse.OptionParser(usage=usage)
     parser.add_option('-g', '--git', dest='git', default=GIT_DEFAULT)
     parser.add_option('-m', '--meta', dest='meta', default=META_DEFAULT)
@@ -92,7 +92,6 @@ def main():
     parser.add_option('-i', '--init', dest='init', action='store_true', default=False)
     parser.add_option('-c', '--clone', dest='clone', default=None)
     parser.add_option('-s', '--serve', dest='serve', default=None)
-    parser.add_option('-0', '--no-sync', dest='no_sync', action='store_true', default=False)
     parser.add_option('-f', '--sync-forever', dest='sync_forever', action='store_true', default=False)
     parser.add_option('-q', '--quiet', dest='quiet', action='store_true', default=False)
     (options, args) = parser.parse_args()
@@ -117,8 +116,8 @@ def main():
         parser.print_help()
         return 1
 
-    if options.no_sync and options.sync_forever:
-        parser.error('--no-sync and --sync-forever are mutually exclusive')
+    if options.serve and options.sync_forever:
+        parser.error('--serve and --sync-forever are mutually exclusive')
         parser.print_help()
         return 1
 
@@ -158,27 +157,29 @@ def main():
             run(options.git, git_common_options + ['checkout'], fatal=True)
             return 0
 
-    if not os.path.exists(os.path.join(directory, options.meta)):
-        print('error: meta directory does not exist')
-        return 1
-    inbox_id = open(os.path.join(directory, options.meta, 'inbox-id'), 'rb').read()
-
-    t_serve = None
     if options.serve != None:
         if options.serve.find(':') != -1:
             address, _, port = options.serve.partition(':')
         else:
             address = '0.0.0.0'
             port = options.serve
-        t_serve = threading.Thread(
-                target=run,
-                args=(options.git, git_common_options + ['daemon', '--strict-paths', '--reuseaddr',
-                        '--enable=upload-pack', '--enable=upload-archive', '--enable=receive-pack',
-                        '--listen=' + address, '--port=' + port,
-                        '--base-path=' + os.path.abspath(directory),
-                        os.path.abspath(os.path.join(directory, options.meta))],)
-            )
-        t_serve.start()
+        dirs = []
+        print('served:')
+        for name in ['.'] + os.listdir(directory):
+            path = os.path.abspath(os.path.join(directory, name, options.meta))
+            if os.path.isdir(path):
+                dirs.append(path)
+                print(name)
+        ret = run(options.git, git_common_options + ['daemon', '--reuseaddr', '--strict-paths',
+                '--enable=upload-pack', '--enable=upload-archive', '--enable=receive-pack',
+                '--listen=' + address, '--port=' + port,
+                '--base-path=' + os.path.abspath(directory)] + dirs)
+        return 0 if ret[0] else 1
+
+    if not os.path.exists(os.path.join(directory, options.meta)):
+        print('error: meta directory does not exist')
+        return 1
+    inbox_id = open(os.path.join(directory, options.meta, 'inbox-id'), 'rb').read()
 
     version = detect_git_version(options.git)
     if version >= (1, 7, 0, 0):
