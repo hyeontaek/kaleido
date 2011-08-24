@@ -125,12 +125,8 @@ def main():
     directory = args[0]
     path_args = get_path_args(directory, options.meta)
 
-    if options.quiet:
-        git_common_options = path_args + ['--quiet']
-        git_common_options_clean = ['--quiet']
-    else:
-        git_common_options = path_args
-        git_common_options_clean = []
+    git_common_options = path_args
+    git_common_options_clean = []
 
     if options.init:
         if os.path.exists(os.path.join(directory, options.meta)):
@@ -200,17 +196,17 @@ def main():
         for branch in list_git_branches(options.git, git_common_options):
             if not branch.startswith('sync_inbox_'):
                 continue
-            run(options.git, git_common_options + ['merge', '--quiet', '--strategy=recursive'] + git_strategy_option + [branch])
+            run(options.git, git_common_options + ['merge', '--quiet', '--strategy=recursive'] + git_strategy_option + [branch], print_stdout=(not options.quiet))
 
         # commit local changes to local master
-        run(options.git, git_common_options + ['add', '--all'])
-        run(options.git, git_common_options + ['commit', '--author="sync <sync@sync>"', '--message=""'], print_stdout=(not options.quiet))
+        run(options.git, git_common_options + ['add', '--all'], print_stdout=(not options.quiet))
+        run(options.git, git_common_options + ['commit', '--quiet', '--author="sync <sync@sync>"', '--message=""'], print_stdout=(not options.quiet))
 
         if git_pushable:
             # push local master to remote sync_inbox_ID for remote merge
             run(options.git, git_common_options + ['push', '--quiet', 'origin', 'master:sync_inbox_%s' % inbox_id], print_stdout=(not options.quiet))
             # fetch remote master to local sync_inbox_origin for local merge
-            run(options.git, git_common_options + ['fetch', '--quiet', 'origin', 'master:sync_inbox_origin'])
+            run(options.git, git_common_options + ['fetch', '--quiet', 'origin', 'master:sync_inbox_origin'], print_stdout=(not options.quiet))
 
         if options.sync_forever:
             time.sleep(1)
