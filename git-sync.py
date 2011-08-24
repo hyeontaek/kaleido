@@ -17,13 +17,13 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
-import io
 import optparse
 import os
 import platform
 import random
 import subprocess
 import sys
+import StringIO
 import time
 import threading
 
@@ -54,8 +54,8 @@ def run_git(args, print_stdout=True, print_stderr=True, fatal=False):
     p.stdin.close()
 
     threads = []
-    stdout_buf = io.StringIO()
-    stderr_buf = io.StringIO()
+    stdout_buf = StringIO.StringIO()
+    stderr_buf = StringIO.StringIO()
     tee_stdout = sys.stdout if print_stdout else None
     tee_stderr = sys.stderr if print_stderr else None
     threads.append(threading.Thread(target=move_output, args=(p.stdout, stdout_buf, tee_stdout)))
@@ -73,7 +73,7 @@ def detect_git_version():
     _, version, _ = run_git(['--version'], False, False, fatal=True)
 
     version = version.split(' ')[2]
-    version = tuple([int(X) for x in version.split('.')[:4]])
+    version = tuple([int(x) for x in version.split('.')[:4]])
     return version
 
 def list_git_branches():
