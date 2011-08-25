@@ -17,6 +17,7 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
+import BaseHTTPServer
 import optparse
 import os
 import platform
@@ -84,16 +85,17 @@ def get_path_args(directory, meta):
     return ['--git-dir=' + os.path.join(directory, meta), '--work-tree=' + directory]
 
 def main():
-    usage = 'usage: %prog [--meta <directory>] {--usercmd <git-command> | [{--init | --clone <repository>}] [--serve [<address>:]<port> | --sync-forever] <directory>}'
+    usage = 'usage: %prog [--meta <directory>] {--usercmd <git-command> | [{--init | --clone <repository>}] [--distribute [<address>:]<port> | --serve [<address>:]<port> | --sync-forever] <directory>}'
     parser = optparse.OptionParser(usage=usage)
-    parser.add_option('-g', '--git', dest='git', default=GIT_DEFAULT)
-    parser.add_option('-m', '--meta', dest='meta', default=META_DEFAULT)
-    parser.add_option('-U', '--usercmd', dest='usercmd', action='store_true', default=False)
-    parser.add_option('-i', '--init', dest='init', action='store_true', default=False)
-    parser.add_option('-c', '--clone', dest='clone', default=None)
-    parser.add_option('-s', '--serve', dest='serve', default=None)
-    parser.add_option('-f', '--sync-forever', dest='sync_forever', action='store_true', default=False)
-    parser.add_option('-q', '--quiet', dest='quiet', action='store_true', default=False)
+    parser.add_option('-g', '--git', dest='git', default=GIT_DEFAULT, help='git executable path')
+    parser.add_option('-m', '--meta', dest='meta', default=META_DEFAULT, help='git repository directory name')
+    parser.add_option('-U', '--usercmd', dest='usercmd', action='store_true', default=False, help='custom user command')
+    parser.add_option('-i', '--init', dest='init', action='store_true', default=False, help='init a sync')
+    parser.add_option('-c', '--clone', dest='clone', default=None, help='clone a sync')
+    parser.add_option('-d', '--distribute', dest='distribute', default=None, help='distribute git-sync via HTTP')
+    parser.add_option('-s', '--serve', dest='serve', default=None, help='serve git repositories using git daemon')
+    parser.add_option('-f', '--sync-forever', dest='sync_forever', action='store_true', default=False, help='sync forever')
+    parser.add_option('-q', '--quiet', dest='quiet', action='store_true', default=False, help='less verbose')
     (options, args) = parser.parse_args()
 
     if options.usercmd:
@@ -116,8 +118,8 @@ def main():
         parser.print_help()
         return 1
 
-    if options.serve and options.sync_forever:
-        parser.error('--serve and --sync-forever are mutually exclusive')
+    if options.distribute and options.serve and options.sync_forever:
+        parser.error('--distribute and --serve and --sync-forever are mutually exclusive')
         parser.print_help()
         return 1
 
@@ -157,6 +159,41 @@ def main():
             run(options.git, git_common_options + ['checkout'], fatal=True)
             return 0
 
+    if options.distribute != None:
+        if options.distribute.find(':') != -1:
+            address, _, port = options.distribute.partition(':')
+        else:
+            address = '0.0.0.0'
+            port = options.distribute
+        class Handler(BaseHTTPServer.BaseHTTPRequestHandler):
+            def do_GET(self):
+                if self.path == '/':
+                    self.send_response(200)
+                    self.send_header('Content-type', 'text/html')
+                    self.end_headers()
+                    self.wfile.write('<html><body><a href="git-sync.py">git-sync.py</a></body></html>')
+                elif self.path == '/git-sync.py':
+                    try:
+                        f = open(sys.argv[0], 'rb')
+                        s = f.read()
+                    except IOError, OSError:
+                        self.send_response(500)
+                        self.end_headers()
+                    else:
+                        self.send_response(200)
+                        self.send_header('Content-type', 'text/x-python')
+                        self.end_headers()
+                        self.wfile.write(s)
+                else:
+                    self.send_response(404)
+                    self.end_headers()
+
+        try:
+            BaseHTTPServer.HTTPServer((address, int(port)), Handler).serve_forever()
+        except KeyboardInterrupt:
+            pass
+        return 0
+
     if options.serve != None:
         if options.serve.find(':') != -1:
             address, _, port = options.serve.partition(':')
@@ -164,12 +201,14 @@ def main():
             address = '0.0.0.0'
             port = options.serve
         dirs = []
-        print('served:')
+        if not options.quiet:
+            print('served:')
         for name in ['.'] + os.listdir(directory):
             path = os.path.abspath(os.path.join(directory, name, options.meta))
             if os.path.isdir(path):
                 dirs.append(path)
-                print(name)
+                if not options.quiet:
+                    print(name)
         ret = run(options.git, git_common_options + ['daemon', '--reuseaddr', '--strict-paths',
                 '--enable=upload-pack', '--enable=upload-archive', '--enable=receive-pack',
                 '--listen=' + address, '--port=' + port,
