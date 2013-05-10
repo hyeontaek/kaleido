@@ -1,0 +1,4 @@
+#!/bin/bash
+
+python "$(dirname ${BASH_SOURCE[0]})/kaleido.py" "$@"
+
