@@ -85,7 +85,7 @@ def list_git_branches(git_path, git_common_options):
 def get_path_args(directory, meta):
     return ['--git-dir=' + os.path.join(directory, meta), '--work-tree=' + directory]
 
-def init(options, _):
+def init(options, command, args):
     if os.path.exists(os.path.join(options.working_copy, options.meta)):
         print('error: meta directory already exists')
         return False
@@ -99,7 +99,7 @@ def init(options, _):
     open(os.path.join(options.working_copy, options.meta, 'inbox-id'), 'wb').write(inbox_id + '\n')
     return True
 
-def clone(options, args):
+def clone(options, command, args):
     if os.path.exists(os.path.join(options.working_copy, options.meta)):
         print('error: meta directory already exists')
         return False
@@ -117,7 +117,7 @@ def clone(options, args):
     run(options.git, git_common_options + ['checkout'], fatal=True)
     return True
 
-def serve(options, args):
+def serve(options, command, args):
     address_arg = args[0]
     address, port = address_arg.split(':', 1) if address_arg.find(':') != -1 else ('0.0.0.0', address_arg)
     dirs = []
@@ -136,7 +136,7 @@ def serve(options, args):
             '--base-path=' + os.path.abspath(options.working_copy)] + dirs)
     return ret[0]
 
-def distribute(_, args):
+def distribute(options, command, args):
     address_arg = args[0]
     address, port = address_arg.split(':', 1) if address_arg.find(':') != -1 else ('0.0.0.0', address_arg)
     if not options.quiet:
@@ -170,8 +170,8 @@ def distribute(_, args):
         pass
     return True
 
-def sync(options, args):
-    sync_once = len(args) >= 1 and args[0] == 'once'
+def sync(options, command, args):
+    sync_forever = command == 'sync-forever'
     inbox_id = open(os.path.join(options.working_copy, options.meta, 'inbox-id'), 'rb').read().strip()
 
     version = detect_git_version(options.git)
@@ -198,18 +198,20 @@ def sync(options, args):
                 # fetch remote master to local sync_inbox_origin for local merge
                 run(options.git, git_common_options + ['fetch', '--quiet', 'origin', 'master:sync_inbox_origin'], print_stdout=(not options.quiet))
 
-            if sync_once: break
-            time.sleep(1)
+            if sync_forever:
+                time.sleep(1)
+                continue
+            break
     except KeyboardInterrupt:
         pass
     return True
 
-def git(options, args):
+def git(options, command, args):
     git_args = get_path_args('.', options.meta) + args
     return run(options.git, git_args)[0]
 
 def main():
-    usage = 'usage: %prog [OPTIONS] {init | clone <repository> | serve [<address>:]<port> | sync [once] | distribute [<address>:]<port> | git [<git-command>]}'
+    usage = 'usage: %prog [OPTIONS] {init | clone <repository> | serve [<address>:]<port> | distribute [<address>:]<port> | sync | sync-forever | git [<git-command>]}'
     parser = optparse.OptionParser(usage=usage)
     parser.add_option('-g', '--git', dest='git', default=GIT_DEFAULT, help='git executable path')
     parser.add_option('-m', '--meta', dest='meta', default=META_DEFAULT, help='git repository directory name')
@@ -226,36 +228,36 @@ def main():
     args = args[1:]
 
     if command == 'init':
-        ret = init(options, args)
+        ret = init(options, command, args)
     elif command == 'clone':
         if len(args) < 1:
             parser.error('too few arguments')
             parser.print_help()
             ret = False
         else:
-            ret = clone(options, args)
+            ret = clone(options, command, args)
     elif command == 'serve':
         if len(args) < 1:
             parser.error('too few arguments')
             parser.print_help()
             ret = False
         else:
-            ret = serve(options, args)
+            ret = serve(options, command, args)
     elif command == 'distribute':
         if len(args) < 1:
             parser.error('too few arguments')
             parser.print_help()
             ret = False
         else:
-            ret = distribute(options, args)
-    elif command == 'sync':
+            ret = distribute(options, command, args)
+    elif command == 'sync' or command == 'sync-forever':
         if not os.path.exists(os.path.join(options.working_copy, options.meta)):
             print('error: meta directory does not exist')
             ret = False
         else:
-            ret = sync(options, args)
+            ret = sync(options, command, args)
     elif command == 'git':
-        ret = git(options, args)
+        ret = git(options, command, args)
     else:
         print('error: invalid command')
         parser.print_help()
