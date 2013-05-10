@@ -1,4 +1,4 @@
 #!/bin/bash
 
-python "$(dirname ${BASH_SOURCE[0]})/kaleido.py" "$@"
+python "$(dirname `readlink -f ${BASH_SOURCE[0]}`)/kaleido.py" "$@"
 
