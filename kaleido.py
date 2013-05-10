@@ -125,10 +125,10 @@ def sync(options, command, args):
     inbox_id = open(os.path.join(options.working_copy, options.meta, 'inbox-id'), 'rb').read().strip()
 
     version = detect_git_version(options.git)
-    git_strategy_option = ['-X', 'theirs'] if version >= (1, 7, 0, 0) else []
+    git_strategy_option = ['--strategy-option', 'theirs'] if version >= (1, 7, 0, 0) else []
 
     git_common_options = get_path_args(options.working_copy, options.meta)
-    git_pushable = run(options.git, git_common_options + ['config', '--get', 'remote.origin.url'])[0]
+    git_pushable = run(options.git, git_common_options + ['config', '--get', 'remote.origin.url'], print_stdout=False)[0]
 
     try:
         while True:
