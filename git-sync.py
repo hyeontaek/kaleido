@@ -87,7 +87,7 @@ def get_path_args(directory, meta):
 
 def init(options, _):
     if os.path.exists(os.path.join(options.working_copy, options.meta)):
-        print('error: meta options.working_copy already exists')
+        print('error: meta directory already exists')
         return False
     git_common_options = get_path_args(options.working_copy, options.meta)
     run(options.git, ['init', '--bare', os.path.join(options.working_copy, options.meta)], fatal=True) # this does not use git_common_options
@@ -101,7 +101,7 @@ def init(options, _):
 
 def clone(options, args):
     if os.path.exists(os.path.join(options.working_copy, options.meta)):
-        print('error: meta options.working_copy already exists')
+        print('error: meta directory already exists')
         return False
     url = args[0].rstrip('/') + '/' + options.meta
     if url.find('://') == -1:
