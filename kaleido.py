@@ -90,8 +90,8 @@ def init(options, command, args):
     run(options.git, git_common_options + ['config', 'core.bare', 'false'], fatal=True)
     run(options.git, git_common_options + ['commit', '--author="%s <%s@kaleido>"' % (inbox_id, inbox_id), '--message=', '--allow-empty-message', '--allow-empty'], fatal=True)
     open(os.path.join(options.working_copy, options.meta, 'info', 'exclude'), 'at').write(options.meta + '\n')
-    open(os.path.join(options.working_copy, options.meta, 'git-daemon-export-ok'), 'wb')
-    open(os.path.join(options.working_copy, options.meta, 'inbox-id'), 'wb').write(inbox_id + '\n')
+    open(os.path.join(options.working_copy, options.meta, 'git-daemon-export-ok'), 'wt')
+    open(os.path.join(options.working_copy, options.meta, 'inbox-id'), 'wt').write(inbox_id + '\n')
     return True
 
 def clone(options, command, args):
@@ -104,8 +104,8 @@ def clone(options, command, args):
     run(options.git, git_common_options + ['config', 'core.bare', 'false'], fatal=True)
     run(options.git, git_common_options + ['config', 'remote.origin.url', url], fatal=True)
     open(os.path.join(options.working_copy, options.meta, 'info', 'exclude'), 'at').write(options.meta + '\n')
-    open(os.path.join(options.working_copy, options.meta, 'git-daemon-export-ok'), 'wb')
-    open(os.path.join(options.working_copy, options.meta, 'inbox-id'), 'wb').write(inbox_id + '\n')
+    open(os.path.join(options.working_copy, options.meta, 'git-daemon-export-ok'), 'wt')
+    open(os.path.join(options.working_copy, options.meta, 'inbox-id'), 'wt').write(inbox_id + '\n')
     run(options.git, git_common_options + ['checkout'], fatal=True)
     return True
 
@@ -122,7 +122,7 @@ def serve(options, command, args):
 
 def sync(options, command, args):
     sync_forever = (command == 'sync-forever')
-    inbox_id = open(os.path.join(options.working_copy, options.meta, 'inbox-id'), 'rb').read().strip()
+    inbox_id = open(os.path.join(options.working_copy, options.meta, 'inbox-id'), 'rt').read().strip()
 
     version = detect_git_version(options.git)
     git_strategy_option = ['--strategy-option', 'theirs'] if version >= (1, 7, 0, 0) else []
