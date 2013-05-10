@@ -136,40 +136,6 @@ def serve(options, command, args):
             '--base-path=' + os.path.abspath(options.working_copy)] + dirs)
     return ret[0]
 
-def distribute(options, command, args):
-    address_arg = args[0]
-    address, port = address_arg.split(':', 1) if address_arg.find(':') != -1 else ('0.0.0.0', address_arg)
-    if not options.quiet:
-        print('waiting for clients at %s:%s' % (address, port))
-    class Handler(BaseHTTPServer.BaseHTTPRequestHandler):
-        def do_GET(self):
-            if self.path == '/':
-                self.send_response(200)
-                self.send_header('Content-type', 'text/html')
-                self.end_headers()
-                self.wfile.write('<html><body><a href="git-sync.py">git-sync.py</a></body></html>')
-            elif self.path == '/git-sync.py':
-                try:
-                    f = open(sys.argv[0], 'rb')
-                    s = f.read()
-                except (IOError, OSError):
-                    self.send_response(500)
-                    self.end_headers()
-                else:
-                    self.send_response(200)
-                    self.send_header('Content-type', 'text/x-python')
-                    self.end_headers()
-                    self.wfile.write(s)
-            else:
-                self.send_response(404)
-                self.end_headers()
-
-    try:
-        BaseHTTPServer.HTTPServer((address, int(port)), Handler).serve_forever()
-    except KeyboardInterrupt:
-        pass
-    return True
-
 def sync(options, command, args):
     sync_forever = command == 'sync-forever'
     inbox_id = open(os.path.join(options.working_copy, options.meta, 'inbox-id'), 'rb').read().strip()
@@ -211,7 +177,7 @@ def git(options, command, args):
     return run(options.git, git_args)[0]
 
 def main():
-    usage = 'usage: %prog [OPTIONS] {init | clone <repository> | serve [<address>:]<port> | distribute [<address>:]<port> | sync | sync-forever | git [<git-command>]}'
+    usage = 'usage: %prog [OPTIONS] {init | clone <repository> | serve [<address>:]<port> | sync | sync-forever | git [<git-command>]}'
     parser = optparse.OptionParser(usage=usage)
     parser.add_option('-g', '--git', dest='git', default=GIT_DEFAULT, help='git executable path')
     parser.add_option('-m', '--meta', dest='meta', default=META_DEFAULT, help='git repository directory name')
@@ -243,13 +209,6 @@ def main():
             ret = False
         else:
             ret = serve(options, command, args)
-    elif command == 'distribute':
-        if len(args) < 1:
-            parser.error('too few arguments')
-            parser.print_help()
-            ret = False
-        else:
-            ret = distribute(options, command, args)
     elif command == 'sync' or command == 'sync-forever':
         if not os.path.exists(os.path.join(options.working_copy, options.meta)):
             print('error: meta directory does not exist')
