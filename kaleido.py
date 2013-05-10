@@ -70,14 +70,14 @@ def run(git_path, args, print_stdout=True, print_stderr=True, fatal=False):
     return (ret == 0, stdout_buf.getvalue(), stderr_buf.getvalue())
 
 def detect_git_version(git_path):
-    _, version, _ = run(git_path, ['--version'], False, False, fatal=True)
+    _, version, _ = run(git_path, ['--version'], print_stdout=False, print_stderr=False, fatal=True)
 
     version = version.split(' ')[2]
     version = tuple([int(x) for x in version.split('.')[:4]])
     return version
 
 def list_git_branches(git_path, git_common_options):
-    for line in run(git_path, git_common_options + ['branch', '--no-color'], False, False)[1].splitlines():
+    for line in run(git_path, git_common_options + ['branch', '--no-color'], print_stdout=False, print_stderr=False)[1].splitlines():
         yield line[2:].strip()
 
 def get_path_args(directory, meta):
@@ -151,7 +151,7 @@ def sync(options, command, args):
                 run(options.git, git_common_options + ['fetch', '--quiet', 'origin', 'master:sync_inbox_origin'], print_stdout=(not options.quiet))
 
             if sync_forever:
-                time.sleep(1)
+                time.sleep(float(options.interval))
                 continue
             break
     except KeyboardInterrupt:
@@ -168,6 +168,7 @@ def main():
     parser.add_option('-g', '--git', dest='git', default=GIT_DEFAULT, help='git executable path [default: %default]')
     parser.add_option('-m', '--meta', dest='meta', default=META_DEFAULT, help='git repository directory name [default: %default]')
     parser.add_option('-w', '--working-copy', dest='working_copy', default=WORKING_COPY_DEFAULT, help='working copy path [default: %default]')
+    parser.add_option('-i', '--interval', dest='interval', default='1', help='interval between sync in sync-forever [default: %default]')
     parser.add_option('-q', '--quiet', dest='quiet', action='store_true', default=False, help='less verbose when syncing')
     (options, args) = parser.parse_args()
 
