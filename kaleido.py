@@ -25,7 +25,7 @@ import StringIO
 import time
 import threading
 
-META_DEFAULT='.sync'
+META_DEFAULT='.kaleido'
 #META_DEFAULT='.git'    # for debugging; unsafe
 
 WORKING_COPY_DEFAULT='.'
