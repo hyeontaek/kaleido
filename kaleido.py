@@ -40,6 +40,9 @@ elif platform.platform().startswith('Windows'):
 else:
     assert False, 'not support platform'
 
+INTERVAL_DEFAULT='1'
+
+
 def copy_output(src, dst, tee=None):
     while True:
         s = src.readline(4096).decode(sys.getdefaultencoding())
@@ -162,19 +165,55 @@ def git(options, command, args):
     git_args = get_path_args('.', options.meta) + [command] + args
     return run(options.git, git_args)[0]
 
+class Option: pass
+
+def print_usage():
+    print('usage: %prog [OPTIONS] {init | clone <repository> | serve [<address>:]<port> | sync | sync-forever | <git-command>}' % sys.argv[0])
+    print()
+    print('Options:')
+    print('  -h                show this help message and exit')
+    print('  -g GIT            git executable path [default: %s]' % GIT_DEFAULT)
+    print('  -m META           git repository directory name [default: %s]' % META_DEFAULT)
+    print('  -w WORKING_COPY   working copy path [default: %s]' % WORKING_COPY_DEFAULT)
+    print('  -i INTERVAL       interval between sync in sync-forever [default: %s]' % INTERVAL_DEFAULT)
+    print('  -q                less verbose when syncing')
+
 def main():
-    usage = 'usage: %prog [OPTIONS] {init | clone <repository> | serve [<address>:]<port> | sync | sync-forever | <git-command>}'
-    parser = optparse.OptionParser(usage=usage)
-    parser.add_option('-g', '--git', dest='git', default=GIT_DEFAULT, help='git executable path [default: %default]')
-    parser.add_option('-m', '--meta', dest='meta', default=META_DEFAULT, help='git repository directory name [default: %default]')
-    parser.add_option('-w', '--working-copy', dest='working_copy', default=WORKING_COPY_DEFAULT, help='working copy path [default: %default]')
-    parser.add_option('-i', '--interval', dest='interval', default='1', help='interval between sync in sync-forever [default: %default]')
-    parser.add_option('-q', '--quiet', dest='quiet', action='store_true', default=False, help='less verbose when syncing')
-    (options, args) = parser.parse_args()
+    prog = sys.argv[0]
+    args = sys.argv[1:]
+
+    options = Option()
+    options.git = GIT_DEFAULT
+    options.meta = META_DEFAULT
+    options.working_copy = WORKING_COPY_DEFAULT
+    options.interval = INTERVAL_DEFAULT
+    options.quiet = False
 
     if len(args) == 0:
         parser.print_help()
         return 1
+
+    while len(args) >= 1:
+        if args[0] == '-h':
+            print_usageage()
+            return 1
+        elif args[0] == '-g':
+            options.git = args[1]
+            args = args[2:]
+        elif args[0] == '-m':
+            options.meta = args[1]
+            args = args[2:]
+        elif args[0] == '-w':
+            options.working_copy = args[1]
+            args = args[2:]
+        elif args[0] == '-i':
+            options.interval = args[1]
+            args = args[2:]
+        elif args[0] == '-q':
+            options.quiet = True
+            args = args[1:]
+        else:
+            break
 
     command = args[0]
     args = args[1:]
