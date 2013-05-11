@@ -73,6 +73,10 @@ def run(git_path, args, print_stdout=True, print_stderr=True, fatal=False):
     
     return (ret == 0, stdout_buf.getvalue(), stderr_buf.getvalue())
 
+def invoke(git_path, args):
+    ret = subprocess.call([git_path] + args)
+    return ret == 0
+
 def detect_git_version(git_path):
     _, version, _ = run(git_path, ['--version'], print_stdout=False, print_stderr=False, fatal=True)
 
@@ -228,7 +232,7 @@ def sync(options, command, args):
 
 def git(options, command, args):
     git_args = get_path_args('.', options.meta) + [command] + args
-    return run(options.git, git_args)[0]
+    return invoke(options.git, git_args)
 
 class Option: pass
 
