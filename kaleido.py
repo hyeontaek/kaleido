@@ -137,6 +137,8 @@ def sync(options, command, args):
     try:
         prev_last_sync = None
         last_sync_warning = 0
+
+        iteration = 0
         while True:
             # merge local sync_inbox_* into local master
             for branch in list_git_branches(options.git, git_common_options):
@@ -157,7 +159,7 @@ def sync(options, command, args):
                 run(options.git, git_common_options + ['fetch', '--quiet', 'origin', 'master:sync_inbox_origin'], print_stdout=(not options.quiet))
 
             # detect the last sync time
-            if not options.quiet:
+            if not options.quiet and (sync_forever or (not sync_forever and iteration == 1)):
                 for line in run(options.git, git_common_options + ['log', '-1'], print_stdout=False)[1].splitlines():
                     if line.startswith('Date: '):
                         last_sync_str = line[6:].strip()
@@ -188,7 +190,10 @@ def sync(options, command, args):
             if sync_forever:
                 time.sleep(float(options.interval))
                 continue
-            break
+            else:
+                iteration += 1
+                if iteration == 2:
+                    break
     except KeyboardInterrupt:
         pass
     return True
