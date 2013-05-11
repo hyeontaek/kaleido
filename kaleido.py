@@ -134,6 +134,7 @@ def sync(options, command, args):
     git_pushable = run(options.git, git_common_options + ['config', '--get', 'remote.origin.url'], print_stdout=False)[0]
 
     try:
+        prev_last_date = None
         while True:
             # merge local sync_inbox_* into local master
             for branch in list_git_branches(options.git, git_common_options):
@@ -152,6 +153,15 @@ def sync(options, command, args):
                 run(options.git, git_common_options + ['push', '--quiet', 'origin', 'master:sync_inbox_%s' % inbox_id], print_stdout=(not options.quiet))
                 # fetch remote master to local sync_inbox_origin for local merge
                 run(options.git, git_common_options + ['fetch', '--quiet', 'origin', 'master:sync_inbox_origin'], print_stdout=(not options.quiet))
+
+            # detect the last sync time
+            for line in run(options.git, git_common_options + ['log', '-1'], print_stdout=False)[1].splitlines():
+                if line.startswith('Date: '):
+                    last_date = line[6:].strip()
+                    break
+            if prev_last_date != last_date:
+                print('last sync: %s' % last_date)
+                prev_last_date = last_date
 
             if sync_forever:
                 time.sleep(float(options.interval))
