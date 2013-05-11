@@ -73,7 +73,7 @@ def detect_git_version(git_path):
     _, version, _ = run(git_path, ['--version'], print_stdout=False, print_stderr=False, fatal=True)
 
     version = version.split(' ')[2]
-    version = tuple([int(x) for x in version.split('.')[:4]])
+    version = tuple([int(x) for x in version.split('.')[:3]])
     return version
 
 def list_git_branches(git_path, git_common_options):
@@ -125,7 +125,7 @@ def sync(options, command, args):
     inbox_id = open(os.path.join(options.working_copy, options.meta, 'inbox-id'), 'rt').read().strip()
 
     version = detect_git_version(options.git)
-    git_strategy_option = ['--strategy-option', 'theirs'] if version >= (1, 7, 0, 0) else []
+    git_strategy_option = ['--strategy-option', 'theirs'] if version >= (1, 7, 0) else []
 
     git_common_options = get_path_args(options.working_copy, options.meta)
     git_pushable = run(options.git, git_common_options + ['config', '--get', 'remote.origin.url'], print_stdout=False)[0]
