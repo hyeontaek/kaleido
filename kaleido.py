@@ -112,12 +112,12 @@ def clone(options, command, args):
 def serve(options, command, args):
     address_arg = args[0]
     address, port = address_arg.split(':', 1) if address_arg.find(':') != -1 else ('0.0.0.0', address_arg)
-    base_path, _, repo = os.path.abspath(options.working_copy).partition(os.sep)
+    base_path = os.path.abspath(options.working_copy)
+    meta_path = os.path.abspath(os.path.join(options.working_copy, options.meta))
     git_common_options = get_path_args(options.working_copy, options.meta)
     ret = run(options.git, git_common_options + ['daemon', '--reuseaddr', '--strict-paths',
             '--enable=upload-pack', '--enable=upload-archive', '--enable=receive-pack',
-            '--listen=' + address, '--port=' + port,
-            '--base-path=' + base_path, repo])
+            '--listen=' + address, '--port=' + port, '--base-path=' + base_path, meta_path])
     return ret[0]
 
 def sync(options, command, args):
