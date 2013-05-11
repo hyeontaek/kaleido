@@ -121,8 +121,26 @@ def serve(options, command, args):
     git_common_options = get_path_args(options.working_copy, options.meta)
     ret = run(options.git, git_common_options + ['daemon', '--reuseaddr', '--strict-paths',
             '--enable=upload-pack', '--enable=upload-archive', '--enable=receive-pack',
-            '--listen=' + address, '--port=' + port, '--base-path=' + base_path, meta_path])
+            '--listen=' + address, '--port=' + port, '--base-path=' + base_path, meta_path], fatal=True)
     return ret[0]
+
+def squash(options, command, args):
+    sync_forever = (command == 'sync-forever')
+    inbox_id = open(os.path.join(options.working_copy, options.meta, 'inbox-id'), 'rt').read().strip()
+
+    git_common_options = get_path_args(options.working_copy, options.meta)
+    has_origin = run(options.git, git_common_options + ['config', '--get', 'remote.origin.url'], print_stdout=False)[0]
+
+    if has_origin:
+        print('squash must be done at the root working copy with no origin')
+        return False
+
+    tree_id = run(options.git, git_common_options + ['commit-tree', 'HEAD^{tree}'], print_stdout=False, fatal=True)[1].strip()
+    run(options.git, git_common_options + ['branch', 'new_master', tree_id], fatal=True)
+    run(options.git, git_common_options + ['checkout', 'new_master'], fatal=True)
+    run(options.git, git_common_options + ['branch', '-M', 'new_master', 'master'], fatal=True)
+    run(options.git, git_common_options + ['gc', '--aggressive'])
+    return True
 
 def sync(options, command, args):
     sync_forever = (command == 'sync-forever')
@@ -132,34 +150,46 @@ def sync(options, command, args):
     git_strategy_option = ['--strategy-option', 'theirs'] if version >= (1, 7, 0) else []
 
     git_common_options = get_path_args(options.working_copy, options.meta)
-    git_pushable = run(options.git, git_common_options + ['config', '--get', 'remote.origin.url'], print_stdout=False)[0]
+    has_origin = run(options.git, git_common_options + ['config', '--get', 'remote.origin.url'], print_stdout=False)[0]
 
     try:
         prev_last_sync = None
         last_sync_warning = 0
 
-        iteration = 0
         while True:
-            # merge local sync_inbox_* into local master
-            for branch in list_git_branches(options.git, git_common_options):
-                if not branch.startswith('sync_inbox_'):
-                    continue
-                run(options.git, git_common_options + ['merge', '--quiet', '--strategy=recursive'] + git_strategy_option + [branch], print_stdout=(not options.quiet))
-
             # commit local changes to local master
             run(options.git, git_common_options + ['add', '--update'], print_stdout=(not options.quiet))
             if not run(options.git, git_common_options + ['diff', '--quiet', '--cached'])[0]:
                 # there seems some change to commit
                 run(options.git, git_common_options + ['commit', '--quiet', '--author="%s <%s@kaleido>"' % (inbox_id, inbox_id), '--message=', '--allow-empty-message'], print_stdout=(not options.quiet))
 
-            if git_pushable:
-                # push local master to remote sync_inbox_ID for remote merge
-                run(options.git, git_common_options + ['push', '--quiet', 'origin', 'master:sync_inbox_%s' % inbox_id], print_stdout=(not options.quiet))
-                # fetch remote master to local sync_inbox_origin for local merge
-                run(options.git, git_common_options + ['fetch', '--quiet', 'origin', 'master:sync_inbox_origin'], print_stdout=(not options.quiet))
+            # fetch remote master to local sync_inbox_origin for local merge
+            if has_origin:
+                run(options.git, git_common_options + ['fetch', '--quiet', '--force', 'origin', 'master:sync_inbox_origin'], print_stdout=(not options.quiet))
+
+            # merge local sync_inbox_* into local master
+            for branch in list_git_branches(options.git, git_common_options):
+                if not branch.startswith('sync_inbox_'):
+                    continue
+                has_common_ancestor = run(options.git, git_common_options + ['merge-base', 'master', branch])[0]
+                if has_common_ancestor:
+                    # merge local master with the origin
+                    run(options.git, git_common_options + ['merge', '--quiet', '--strategy=recursive'] + git_strategy_option + [branch], print_stdout=(not options.quiet))
+                    run(options.git, git_common_options + ['branch', '--delete', branch], print_stdout=False)
+                else:
+                    # the origin has been squashed; apply it locally
+                    run(options.git, git_common_options + ['branch', 'new_master', branch], print_stdout=(not options.quiet), fatal=True)
+                    # this may fail without --force if some un-added file is now included in the tree
+                    run(options.git, git_common_options + ['checkout', '--force', 'new_master'], print_stdout=(not options.quiet), fatal=True)
+                    run(options.git, git_common_options + ['branch', '-M', 'new_master', 'master'], print_stdout=(not options.quiet), fatal=True)
+                    run(options.git, git_common_options + ['gc', '--aggressive'], print_stdout=(not options.quiet))
+
+            # push local master to remote sync_inbox_ID for remote merge
+            if has_origin:
+                run(options.git, git_common_options + ['push', '--quiet', '--force', 'origin', 'master:sync_inbox_%s' % inbox_id], print_stdout=(not options.quiet))
 
             # detect the last sync time
-            if not options.quiet and (sync_forever or (not sync_forever and iteration == 1)):
+            if not options.quiet:
                 for line in run(options.git, git_common_options + ['log', '-1'], print_stdout=False)[1].splitlines():
                     if line.startswith('Date: '):
                         last_sync_str = line[6:].strip()
@@ -191,9 +221,7 @@ def sync(options, command, args):
                 time.sleep(float(options.interval))
                 continue
             else:
-                iteration += 1
-                if iteration == 2:
-                    break
+                break
     except KeyboardInterrupt:
         pass
     return True
@@ -205,7 +233,7 @@ def git(options, command, args):
 class Option: pass
 
 def print_help():
-    print('usage: %s [OPTIONS] {init | clone <repository> | serve [<address>:]<port> | sync | sync-forever | <git-command>}' % sys.argv[0])
+    print('usage: %s [OPTIONS] {init | clone <repository> | serve [<address>:]<port> | squash | sync | sync-forever | <git-command>}' % sys.argv[0])
     print()
     print('Options:')
     print('  -h                show this help message and exit')
@@ -277,6 +305,8 @@ def main():
             ret = False
         else:
             ret = serve(options, command, args)
+    elif command == 'squash':
+        ret = squash(options, command, args)
     elif command == 'sync' or command == 'sync-forever':
         if not os.path.exists(os.path.join(options.working_copy, options.meta)):
             print('error: %s directory does not exist' % options.meta)
