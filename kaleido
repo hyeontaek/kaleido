@@ -1,4 +1,7 @@
 #!/bin/bash
 
-python "$(dirname `readlink -f ${BASH_SOURCE[0]}`)/kaleido.py" "$@"
+PYTHON=`which python3`
+[ -z "$PYTHON" ] && PYTHON=`which python`
+
+$PYTHON "$(dirname `readlink -f ${BASH_SOURCE[0]}`)/kaleido.py" "$@"
 
