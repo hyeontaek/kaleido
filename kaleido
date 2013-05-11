@@ -2,6 +2,7 @@
 
 PYTHON=`which python3`
 [ -z "${PYTHON}" ] && PYTHON=`which python`
+[ -z "${PYTHON}" ] && PYTHON=`which py.exe`
 
 if [ -z `which readlink` ]; then
 	PROXY_PATH="${BASH_SOURCE[0]}"

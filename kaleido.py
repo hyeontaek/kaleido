@@ -54,8 +54,8 @@ def run(git_path, args, print_stdout=True, print_stderr=True, fatal=False):
     p.stdin.close()
 
     threads = []
-    stdout_buf = io.StringIO()
-    stderr_buf = io.StringIO()
+    stdout_buf = io.BytesIO()
+    stderr_buf = io.BytesIO()
     tee_stdout = sys.stdout if print_stdout else None
     tee_stderr = sys.stderr if print_stderr else None
     threads.append(threading.Thread(target=copy_output, args=(p.stdout, stdout_buf, tee_stdout)))
