@@ -17,7 +17,6 @@
 
 import email.utils
 import io
-import optparse
 import os
 import platform
 import random
@@ -88,12 +87,12 @@ def list_git_branches(git_path, git_common_options):
     for line in run(git_path, git_common_options + ['branch', '--no-color'], print_stdout=False, print_stderr=False)[1].splitlines():
         yield line[2:].strip()
 
-def get_path_args(directory, meta):
-    return ['--git-dir=' + os.path.join(directory, meta), '--work-tree=' + directory]
+def get_path_args(options):
+    return ['--git-dir=' + os.path.join(options.working_copy, options.meta), '--work-tree=' + options.working_copy]
 
 def init(options, command, args):
     inbox_id = '%d_%d' % (time.time(), random.randint(0, 999999))
-    git_common_options = get_path_args(options.working_copy, options.meta)
+    git_common_options = get_path_args(options)
     run(options.git, ['init', '--bare', os.path.join(options.working_copy, options.meta)], fatal=True) # this does not use git_common_options
     run(options.git, git_common_options + ['config', 'core.bare', 'false'], fatal=True)
     run(options.git, git_common_options + ['commit', '--author="%s <%s@kaleido>"' % (inbox_id, inbox_id), '--message=', '--allow-empty-message', '--allow-empty'], fatal=True)
@@ -107,7 +106,7 @@ def clone(options, command, args):
     if url.find('://') == -1:
         url = os.path.abspath(url)
     inbox_id = '%d_%d' % (time.time(), random.randint(0, 999999))
-    git_common_options = get_path_args(options.working_copy, options.meta)
+    git_common_options = get_path_args(options)
     run(options.git, git_common_options + ['clone', '--bare', url, os.path.join(options.working_copy, options.meta)], fatal=True)
     run(options.git, git_common_options + ['config', 'core.bare', 'false'], fatal=True)
     run(options.git, git_common_options + ['config', 'remote.origin.url', url], fatal=True)
@@ -122,17 +121,14 @@ def serve(options, command, args):
     address, port = address_arg.split(':', 1) if address_arg.find(':') != -1 else ('0.0.0.0', address_arg)
     base_path = os.path.abspath(options.working_copy)
     meta_path = os.path.abspath(os.path.join(options.working_copy, options.meta))
-    git_common_options = get_path_args(options.working_copy, options.meta)
+    git_common_options = get_path_args(options)
     ret = run(options.git, git_common_options + ['daemon', '--reuseaddr', '--strict-paths',
             '--enable=upload-pack', '--enable=upload-archive', '--enable=receive-pack',
             '--listen=' + address, '--port=' + port, '--base-path=' + base_path, meta_path], fatal=True)
     return ret[0]
 
 def squash(options, command, args):
-    sync_forever = (command == 'sync-forever')
-    inbox_id = open(os.path.join(options.working_copy, options.meta, 'inbox-id'), 'rt').read().strip()
-
-    git_common_options = get_path_args(options.working_copy, options.meta)
+    git_common_options = get_path_args(options)
     has_origin = run(options.git, git_common_options + ['config', '--get', 'remote.origin.url'], print_stdout=False)[0]
 
     if has_origin:
@@ -168,7 +164,7 @@ def sync(options, command, args):
     version = detect_git_version(options.git)
     git_strategy_option = ['--strategy-option', 'theirs'] if version >= (1, 7, 0) else []
 
-    git_common_options = get_path_args(options.working_copy, options.meta)
+    git_common_options = get_path_args(options)
     has_origin = run(options.git, git_common_options + ['config', '--get', 'remote.origin.url'], print_stdout=False)[0]
 
     no_change_notifications = [
@@ -254,8 +250,18 @@ def sync(options, command, args):
     return True
 
 def git(options, command, args):
-    git_args = get_path_args('.', options.meta) + [command] + args
+    git_args = get_path_args(options) + [command] + args
     return invoke(options.git, git_args)
+
+def detect_working_copy(options):
+    path = os.path.abspath(os.path.join(options.working_copy))
+    while path != os.path.dirname(path):
+        if os.path.exists(os.path.join(path, options.meta)):
+            options.working_copy = path
+            return True
+        path = os.path.dirname(path)
+    print('error: cannot find %s' % options.meta)
+    return False
 
 class Option: pass
 
@@ -330,18 +336,25 @@ def main():
             print('error: too few arguments')
             print_help()
             ret = False
+        elif not detect_working_copy(options):
+            ret = False
         else:
             ret = serve(options, command, args)
     elif command == 'squash':
-        ret = squash(options, command, args)
+        if not detect_working_copy(options):
+            ret = False
+        else:
+            ret = squash(options, command, args)
     elif command == 'sync' or command == 'sync-forever':
-        if not os.path.exists(os.path.join(options.working_copy, options.meta)):
-            print('error: %s directory does not exist' % options.meta)
+        if not detect_working_copy(options):
             ret = False
         else:
             ret = sync(options, command, args)
     else:
-        ret = git(options, command, args)
+        if not detect_working_copy(options):
+            ret = False
+        else:
+            ret = git(options, command, args)
 
     return 0 if ret else 1
 
