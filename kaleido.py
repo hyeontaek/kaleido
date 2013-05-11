@@ -146,6 +146,21 @@ def squash(options, command, args):
     run(options.git, git_common_options + ['gc', '--aggressive'])
     return True
 
+time_units = [
+        (24 * 60 * 60, 'day', 'days'),
+        (     60 * 60, 'hour', 'hours'),
+        (          60, 'minute', 'minutes'),
+        (           1, 'second', 'seconds'),
+    ]
+def get_timediff_str(diff):
+    t = ''
+    for timeunit, name_s, name_p in time_units:
+        if diff >= timeunit:
+            c = int(diff / timeunit)
+            diff -= c * timeunit
+            t += '%d %s ' % (c, name_s if c == 1 else name_p)
+    return t.rstrip()
+
 def sync(options, command, args):
     sync_forever = (command == 'sync-forever')
     inbox_id = open(os.path.join(options.working_copy, options.meta, 'inbox-id'), 'rt').read().strip()
@@ -156,21 +171,21 @@ def sync(options, command, args):
     git_common_options = get_path_args(options.working_copy, options.meta)
     has_origin = run(options.git, git_common_options + ['config', '--get', 'remote.origin.url'], print_stdout=False)[0]
 
-    no_sync_notifications = [
-            (24 * 60 * 60, '1 day'),
-            (12 * 60 * 60, '12 hours'),
-            ( 6 * 60 * 60, '6 hours'),
-            (     60 * 60, '1 hour'),
-            (     30 * 60, '30 minutes'),
-            (     10 * 60, '10 minutes'),
-            (          60, '1 minute'),
-            (          30, '30 seconds'),
-            (          10, '10 seconds'),
+    no_change_notifications = [
+            (24 * 60 * 60),
+            (12 * 60 * 60),
+            ( 6 * 60 * 60),
+            (     60 * 60),
+            (     30 * 60),
+            (     10 * 60),
+            (          60),
+            (          30),
+            (          10),
         ]
 
     try:
-        prev_last_sync = None
-        last_sync_warning = 0
+        prev_last_change = None
+        last_diff = 0
 
         while True:
             # commit local changes to local master
@@ -205,27 +220,30 @@ def sync(options, command, args):
             if has_origin:
                 run(options.git, git_common_options + ['push', '--quiet', '--force', 'origin', 'master:sync_inbox_%s' % inbox_id], print_stdout=(not options.quiet))
 
-            # detect the last sync time
+            # detect the last change time
             if not options.quiet:
                 for line in run(options.git, git_common_options + ['log', '-1'], print_stdout=False)[1].splitlines():
                     if line.startswith('Date: '):
-                        last_sync_str = line[6:].strip()
-                        last_sync = time.mktime(email.utils.parsedate(last_sync_str))
+                        last_change_str = line[6:].strip()
+                        last_change = time.mktime(email.utils.parsedate(last_change_str))
                         break
-                if prev_last_sync != last_sync:
-                    print('last sync: %s' % email.utils.formatdate(last_sync, True))
-                    prev_last_sync = last_sync
-                    last_sync_warning = 0
+                now = time.time()
+                if prev_last_change != last_change:
+                    # new change
+                    diff_msg = get_timediff_str(now - last_change)
+                    diff_msg = diff_msg + ' ago' if diff_msg else 'now'
+                    print('last change: %s (%s)' % (email.utils.formatdate(last_change, True), diff_msg))
+                    prev_last_change = last_change
                 else:
-                    now = time.time()
-                    no_sync_msg = ''
-                    for timespan, message in no_sync_notifications:
-                        if last_sync_warning < timespan and now - prev_last_sync >= timespan:
-                            no_sync_msg = 'no new sync in ' + message
-                            last_sync_warning = timespan
+                    # no change
+                    no_change_msg = ''
+                    for timespan in no_change_notifications:
+                        if last_diff < timespan and now - last_change >= timespan:
+                            no_change_msg = 'no changes in ' + get_timediff_str(timespan)
                             break
-                    if no_sync_msg:
-                        print('%s' % no_sync_msg)
+                    if no_change_msg:
+                        print(no_change_msg)
+                last_diff = now - last_change
 
             if sync_forever:
                 time.sleep(float(options.interval))
