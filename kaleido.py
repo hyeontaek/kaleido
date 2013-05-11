@@ -207,14 +207,13 @@ def sync(options, command, args):
                     # merge local master with the origin
                     run(options.git, git_common_options + ['merge', '--quiet', '--strategy=recursive'] + git_strategy_option + [branch], print_stdout=(not options.quiet))
                     run(options.git, git_common_options + ['branch', '--delete', branch], print_stdout=False)
-                else:
-                    if branch == 'sync_inbox_origin':
-                        # the origin has been squashed; apply it locally
-                        run(options.git, git_common_options + ['branch', 'new_master', branch], print_stdout=(not options.quiet), fatal=True)
-                        # this may fail without --force if some un-added file is now included in the tree
-                        run(options.git, git_common_options + ['checkout', '--force', 'new_master'], print_stdout=(not options.quiet), fatal=True)
-                        run(options.git, git_common_options + ['branch', '-M', 'new_master', 'master'], print_stdout=(not options.quiet), fatal=True)
-                        run(options.git, git_common_options + ['gc', '--aggressive'], print_stdout=(not options.quiet))
+                elif branch == 'sync_inbox_origin':
+                    # the origin has been squashed; apply it locally
+                    run(options.git, git_common_options + ['branch', 'new_master', branch], print_stdout=(not options.quiet), fatal=True)
+                    # this may fail without --force if some un-added file is now included in the tree
+                    run(options.git, git_common_options + ['checkout', '--force', 'new_master'], print_stdout=(not options.quiet), fatal=True)
+                    run(options.git, git_common_options + ['branch', '-M', 'new_master', 'master'], print_stdout=(not options.quiet), fatal=True)
+                    run(options.git, git_common_options + ['gc', '--aggressive'], print_stdout=(not options.quiet))
 
             # push local master to remote sync_inbox_ID for remote merge
             if has_origin:
