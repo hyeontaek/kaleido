@@ -1,8 +1,11 @@
 #!/bin/bash
 
 PYTHON=`which python3`
-[ -z "${PYTHON}" ] && PYTHON=`which python`
-[ -z "${PYTHON}" ] && PYTHON=`which py.exe`
+PYTHON_ARGS=
+if [ -z "${PYTHON}" ]; then
+	PYTHON="py.exe"
+	PYTHON_ARGS="-3"
+fi
 
 if [ -z `which readlink` ]; then
 	PROXY_PATH="${BASH_SOURCE[0]}"
@@ -12,5 +15,5 @@ fi
 PROXY_DIR=`dirname "${PROXY_PATH}"`
 SCRIPT_PATH="${PROXY_DIR}/kaleido.py"
 
-"${PYTHON}" "${SCRIPT_PATH}" "$@"
+"${PYTHON}" ${PYTHON_ARGS} "${SCRIPT_PATH}" "$@"
 

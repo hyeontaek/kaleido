@@ -42,7 +42,7 @@ else:
 
 def copy_output(src, dst, tee=None):
     while True:
-        s = src.readline(4096)
+        s = src.readline(4096).decode(sys.getdefaultencoding())
         if not s: break
         dst.write(s)
         if tee: tee.write(s)
@@ -54,8 +54,8 @@ def run(git_path, args, print_stdout=True, print_stderr=True, fatal=False):
     p.stdin.close()
 
     threads = []
-    stdout_buf = io.BytesIO()
-    stderr_buf = io.BytesIO()
+    stdout_buf = io.StringIO()
+    stderr_buf = io.StringIO()
     tee_stdout = sys.stdout if print_stdout else None
     tee_stderr = sys.stderr if print_stderr else None
     threads.append(threading.Thread(target=copy_output, args=(p.stdout, stdout_buf, tee_stdout)))
