@@ -15,6 +15,7 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
+import email.utils
 import io
 import optparse
 import os
@@ -134,7 +135,8 @@ def sync(options, command, args):
     git_pushable = run(options.git, git_common_options + ['config', '--get', 'remote.origin.url'], print_stdout=False)[0]
 
     try:
-        prev_last_date = None
+        prev_last_sync = None
+        last_sync_warning = 0
         while True:
             # merge local sync_inbox_* into local master
             for branch in list_git_branches(options.git, git_common_options):
@@ -155,13 +157,33 @@ def sync(options, command, args):
                 run(options.git, git_common_options + ['fetch', '--quiet', 'origin', 'master:sync_inbox_origin'], print_stdout=(not options.quiet))
 
             # detect the last sync time
-            for line in run(options.git, git_common_options + ['log', '-1'], print_stdout=False)[1].splitlines():
-                if line.startswith('Date: '):
-                    last_date = line[6:].strip()
-                    break
-            if prev_last_date != last_date:
-                print('last sync: %s' % last_date)
-                prev_last_date = last_date
+            if not options.quiet:
+                for line in run(options.git, git_common_options + ['log', '-1'], print_stdout=False)[1].splitlines():
+                    if line.startswith('Date: '):
+                        last_sync_str = line[6:].strip()
+                        last_sync = time.mktime(email.utils.parsedate(last_sync_str))
+                        break
+                if prev_last_sync != last_sync:
+                    print('last sync: %s' % email.utils.formatdate(last_sync, True))
+                    prev_last_sync = last_sync
+                    last_sync_warning = 0
+                else:
+                    now = time.time()
+                    no_sync_msg = ''
+                    if last_sync_warning < 24 * 60 * 60 and now - prev_last_sync >= 24 * 60 * 60:
+                        no_sync_msg = 'no sync in last 1 day'
+                        last_sync_warning = 24 * 60 * 60
+                    elif last_sync_warning < 60 * 60 and now - prev_last_sync >= 60 * 60:
+                        no_sync_msg = 'no sync in last 1 hour'
+                        last_sync_warning = 60 * 60
+                    elif last_sync_warning < 60 and now - prev_last_sync >= 60:
+                        no_sync_msg = 'no sync in last 1 minute'
+                        last_sync_warning = 60
+                    elif last_sync_warning < 10 and now - prev_last_sync >= 10:
+                        no_sync_msg = 'no sync in last 10 seconds'
+                        last_sync_warning = 10
+                    if no_sync_msg:
+                        print('%s' % no_sync_msg)
 
             if sync_forever:
                 time.sleep(float(options.interval))
@@ -189,7 +211,6 @@ def print_help():
     print('  -q                less verbose when syncing')
 
 def main():
-    prog = sys.argv[0]
     args = sys.argv[1:]
 
     options = Option()
