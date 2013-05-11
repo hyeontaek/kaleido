@@ -42,6 +42,13 @@ else:
 
 INTERVAL_DEFAULT='1'
 
+class Option:
+    def __init__(self):
+        self.git = GIT_DEFAULT
+        self.meta = META_DEFAULT
+        self.working_copy = WORKING_COPY_DEFAULT
+        self.interval = INTERVAL_DEFAULT
+        self.quiet = False
 
 def copy_output(src, dst, tee=None):
     while True:
@@ -76,12 +83,37 @@ def invoke(git_path, args):
     ret = subprocess.call([git_path] + args)
     return ret == 0
 
-def detect_git_version(git_path):
-    _, version, _ = run(git_path, ['--version'], print_stdout=False, print_stderr=False, fatal=True)
+_time_units = [
+        (24 * 60 * 60, 'day', 'days'),
+        (     60 * 60, 'hour', 'hours'),
+        (          60, 'minute', 'minutes'),
+        (           1, 'second', 'seconds'),
+    ]
+def get_timediff_str(diff):
+    t = ''
+    for timeunit, name_s, name_p in _time_units:
+        if diff >= timeunit:
+            c = int(diff / timeunit)
+            diff -= c * timeunit
+            t += '%d %s ' % (c, name_s if c == 1 else name_p)
+    return t.rstrip()
+
+def detect_git_version(options):
+    _, version, _ = run(options.git, ['--version'], print_stdout=False, print_stderr=False, fatal=True)
 
     version = version.split(' ')[2]
     version = tuple([int(x) for x in version.split('.')[:3]])
     return version
+
+def detect_working_copy(options):
+    path = os.path.abspath(os.path.join(options.working_copy))
+    while path != os.path.dirname(path):
+        if os.path.exists(os.path.join(path, options.meta)):
+            options.working_copy = path
+            return True
+        path = os.path.dirname(path)
+    print('error: cannot find %s' % options.meta)
+    return False
 
 def list_git_branches(git_path, git_common_options):
     for line in run(git_path, git_common_options + ['branch', '--no-color'], print_stdout=False, print_stderr=False)[1].splitlines():
@@ -90,7 +122,7 @@ def list_git_branches(git_path, git_common_options):
 def get_path_args(options):
     return ['--git-dir=' + os.path.join(options.working_copy, options.meta), '--work-tree=' + options.working_copy]
 
-def init(options, command, args):
+def init(options):
     inbox_id = '%d_%d' % (time.time(), random.randint(0, 999999))
     git_common_options = get_path_args(options)
     run(options.git, ['init', '--bare', os.path.join(options.working_copy, options.meta)], fatal=True) # this does not use git_common_options
@@ -101,7 +133,7 @@ def init(options, command, args):
     open(os.path.join(options.working_copy, options.meta, 'inbox-id'), 'wt').write(inbox_id + '\n')
     return True
 
-def clone(options, command, args):
+def clone(options, args):
     url = args[0].rstrip('/') + '/' + options.meta
     if url.find('://') == -1:
         url = os.path.abspath(url)
@@ -116,7 +148,7 @@ def clone(options, command, args):
     run(options.git, git_common_options + ['checkout'], fatal=True)
     return True
 
-def serve(options, command, args):
+def serve(options, args):
     address_arg = args[0]
     address, port = address_arg.split(':', 1) if address_arg.find(':') != -1 else ('0.0.0.0', address_arg)
     base_path = os.path.abspath(options.working_copy)
@@ -127,7 +159,7 @@ def serve(options, command, args):
             '--listen=' + address, '--port=' + port, '--base-path=' + base_path, meta_path], fatal=True)
     return ret[0]
 
-def squash(options, command, args):
+def squash(options):
     git_common_options = get_path_args(options)
     has_origin = run(options.git, git_common_options + ['config', '--get', 'remote.origin.url'], print_stdout=False)[0]
 
@@ -142,41 +174,19 @@ def squash(options, command, args):
     run(options.git, git_common_options + ['gc', '--aggressive'])
     return True
 
-time_units = [
-        (24 * 60 * 60, 'day', 'days'),
-        (     60 * 60, 'hour', 'hours'),
-        (          60, 'minute', 'minutes'),
-        (           1, 'second', 'seconds'),
-    ]
-def get_timediff_str(diff):
-    t = ''
-    for timeunit, name_s, name_p in time_units:
-        if diff >= timeunit:
-            c = int(diff / timeunit)
-            diff -= c * timeunit
-            t += '%d %s ' % (c, name_s if c == 1 else name_p)
-    return t.rstrip()
-
-def sync(options, command, args):
+def sync(options, command):
     sync_forever = (command == 'sync-forever')
     inbox_id = open(os.path.join(options.working_copy, options.meta, 'inbox-id'), 'rt').read().strip()
-
-    version = detect_git_version(options.git)
-    git_strategy_option = ['--strategy-option', 'theirs'] if version >= (1, 7, 0) else []
 
     git_common_options = get_path_args(options)
     has_origin = run(options.git, git_common_options + ['config', '--get', 'remote.origin.url'], print_stdout=False)[0]
 
+    git_strategy_option = ['--strategy-option', 'theirs'] if detect_git_version(options) >= (1, 7, 0) else []
+
     no_change_notifications = [
-            (24 * 60 * 60),
-            (12 * 60 * 60),
-            ( 6 * 60 * 60),
-            (     60 * 60),
-            (     30 * 60),
-            (     10 * 60),
-            (          60),
-            (          30),
-            (          10),
+            (24 * 60 * 60), (12 * 60 * 60), ( 6 * 60 * 60),
+            (     60 * 60), (     30 * 60), (     10 * 60),
+            (          60), (          30), (          10),
         ]
 
     try:
@@ -249,21 +259,9 @@ def sync(options, command, args):
         pass
     return True
 
-def git(options, command, args):
+def git_command(options, command, args):
     git_args = get_path_args(options) + [command] + args
     return invoke(options.git, git_args)
-
-def detect_working_copy(options):
-    path = os.path.abspath(os.path.join(options.working_copy))
-    while path != os.path.dirname(path):
-        if os.path.exists(os.path.join(path, options.meta)):
-            options.working_copy = path
-            return True
-        path = os.path.dirname(path)
-    print('error: cannot find %s' % options.meta)
-    return False
-
-class Option: pass
 
 def print_help():
     print('usage: %s [OPTIONS] {init | clone <repository> | serve [<address>:]<port> | squash | sync | sync-forever | <git-command>}' % sys.argv[0])
@@ -277,14 +275,9 @@ def print_help():
     print('  -q                less verbose when syncing')
 
 def main():
-    args = sys.argv[1:]
-
     options = Option()
-    options.git = GIT_DEFAULT
-    options.meta = META_DEFAULT
-    options.working_copy = WORKING_COPY_DEFAULT
-    options.interval = INTERVAL_DEFAULT
-    options.quiet = False
+
+    args = sys.argv[1:]
 
     if len(args) == 0:
         print_help()
@@ -320,7 +313,7 @@ def main():
             print('error: %s directory already exists' % options.meta)
             ret = False
         else:
-            ret = init(options, command, args)
+            ret = init(options)
     elif command == 'clone':
         if len(args) < 1:
             print('error: too few arguments')
@@ -330,7 +323,7 @@ def main():
             print('error: %s directory already exists' % options.meta)
             ret = False
         else:
-            ret = clone(options, command, args)
+            ret = clone(options, args)
     elif command == 'serve':
         if len(args) < 1:
             print('error: too few arguments')
@@ -339,22 +332,22 @@ def main():
         elif not detect_working_copy(options):
             ret = False
         else:
-            ret = serve(options, command, args)
+            ret = serve(options, args)
     elif command == 'squash':
         if not detect_working_copy(options):
             ret = False
         else:
-            ret = squash(options, command, args)
+            ret = squash(options)
     elif command == 'sync' or command == 'sync-forever':
         if not detect_working_copy(options):
             ret = False
         else:
-            ret = sync(options, command, args)
+            ret = sync(options, command)
     else:
         if not detect_working_copy(options):
             ret = False
         else:
-            ret = git(options, command, args)
+            ret = git_command(options, command, args)
 
     return 0 if ret else 1
 
