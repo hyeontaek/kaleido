@@ -1,4 +1,4 @@
 @echo off
 
-py %~dp0\kaleido.py %*
+py -3 %~dp0\kaleido.py %*
 
