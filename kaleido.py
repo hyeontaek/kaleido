@@ -156,6 +156,18 @@ def sync(options, command, args):
     git_common_options = get_path_args(options.working_copy, options.meta)
     has_origin = run(options.git, git_common_options + ['config', '--get', 'remote.origin.url'], print_stdout=False)[0]
 
+    no_sync_notifications = [
+            (24 * 60 * 60, '1 day'),
+            (12 * 60 * 60, '12 hours'),
+            ( 6 * 60 * 60, '6 hours'),
+            (     60 * 60, '1 hour'),
+            (     30 * 60, '30 minutes'),
+            (     10 * 60, '10 minutes'),
+            (          60, '1 minute'),
+            (          30, '30 seconds'),
+            (          10, '10 seconds'),
+        ]
+
     try:
         prev_last_sync = None
         last_sync_warning = 0
@@ -175,7 +187,7 @@ def sync(options, command, args):
             for branch in list_git_branches(options.git, git_common_options):
                 if not branch.startswith('sync_inbox_'):
                     continue
-                has_common_ancestor = run(options.git, git_common_options + ['merge-base', 'master', branch])[0]
+                has_common_ancestor = run(options.git, git_common_options + ['merge-base', 'master', branch], print_stdout=False)[0]
                 if has_common_ancestor:
                     # merge local master with the origin
                     run(options.git, git_common_options + ['merge', '--quiet', '--strategy=recursive'] + git_strategy_option + [branch], print_stdout=(not options.quiet))
@@ -206,18 +218,11 @@ def sync(options, command, args):
                 else:
                     now = time.time()
                     no_sync_msg = ''
-                    if last_sync_warning < 24 * 60 * 60 and now - prev_last_sync >= 24 * 60 * 60:
-                        no_sync_msg = 'no sync in last 1 day'
-                        last_sync_warning = 24 * 60 * 60
-                    elif last_sync_warning < 60 * 60 and now - prev_last_sync >= 60 * 60:
-                        no_sync_msg = 'no sync in last 1 hour'
-                        last_sync_warning = 60 * 60
-                    elif last_sync_warning < 60 and now - prev_last_sync >= 60:
-                        no_sync_msg = 'no sync in last 1 minute'
-                        last_sync_warning = 60
-                    elif last_sync_warning < 10 and now - prev_last_sync >= 10:
-                        no_sync_msg = 'no sync in last 10 seconds'
-                        last_sync_warning = 10
+                    for timespan, message in no_sync_notifications:
+                        if last_sync_warning < timespan and now - prev_last_sync >= timespan:
+                            no_sync_msg = 'no new sync in ' + message
+                            last_sync_warning = timespan
+                            break
                     if no_sync_msg:
                         print('%s' % no_sync_msg)
 
