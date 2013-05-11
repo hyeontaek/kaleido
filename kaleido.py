@@ -167,8 +167,8 @@ def git(options, command, args):
 
 class Option: pass
 
-def print_usage():
-    print('usage: %prog [OPTIONS] {init | clone <repository> | serve [<address>:]<port> | sync | sync-forever | <git-command>}' % sys.argv[0])
+def print_help():
+    print('usage: %s [OPTIONS] {init | clone <repository> | serve [<address>:]<port> | sync | sync-forever | <git-command>}' % sys.argv[0])
     print()
     print('Options:')
     print('  -h                show this help message and exit')
@@ -190,12 +190,12 @@ def main():
     options.quiet = False
 
     if len(args) == 0:
-        parser.print_help()
+        print_help()
         return 1
 
     while len(args) >= 1:
         if args[0] == '-h':
-            print_usageage()
+            print_help()
             return 1
         elif args[0] == '-g':
             options.git = args[1]
@@ -226,8 +226,8 @@ def main():
             ret = init(options, command, args)
     elif command == 'clone':
         if len(args) < 1:
-            parser.error('too few arguments')
-            parser.print_help()
+            print('error: too few arguments')
+            print_help()
             ret = False
         elif os.path.exists(os.path.join(options.working_copy, options.meta)):
             print('error: %s directory already exists' % options.meta)
@@ -236,8 +236,8 @@ def main():
             ret = clone(options, command, args)
     elif command == 'serve':
         if len(args) < 1:
-            parser.error('too few arguments')
-            parser.print_help()
+            print('error: too few arguments')
+            print_help()
             ret = False
         else:
             ret = serve(options, command, args)
