@@ -24,11 +24,12 @@ import subprocess
 import sys
 import time
 import threading
+import zmq
 
-META_DEFAULT='.kaleido'
-#META_DEFAULT='.git'    # for debugging; unsafe
+META_DEFAULT = '.kaleido'
+#META_DEFAULT = '.git'    # for debugging; unsafe
 
-WORKING_COPY_DEFAULT='.'
+WORKING_COPY_DEFAULT = '.'
 
 if platform.platform().startswith('Linux') or platform.platform().startswith('FreeBSD'):
     GIT_DEFAULT = 'git'
@@ -40,7 +41,7 @@ elif platform.platform().startswith('Windows'):
 else:
     assert False, 'not support platform'
 
-INTERVAL_DEFAULT='1'
+INTERVAL_DEFAULT = '1'
 
 class Option:
     def __init__(self):
@@ -49,6 +50,8 @@ class Option:
         self.working_copy = WORKING_COPY_DEFAULT
         self.interval = INTERVAL_DEFAULT
         self.local_polling = False
+        self.beacon_server = False
+        self.beacon_server_address = None
         self.quiet = False
 
 def copy_output(src, dst, tee=None):
@@ -181,39 +184,125 @@ _no_change_notifications = [
         (          60), (          30), (          10),
     ]
 
-def parse_inotifywait_output(src, options, flag_dict):
+def monitor_local_changes_start(options, possible_local_changes):
+    if platform.platform().startswith('Linux'):
+        p = subprocess.Popen(['inotifywait', '--monitor', '--recursive', '--quiet',
+                              '-e', 'modify', '-e', 'attrib', '-e', 'close_write', '-e', 'move', '-e', 'create', '-e', 'delete',
+                                options.working_copy], stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+        p.stdin.close()
+        exit = [False]
+        t = threading.Thread(target=inotifywait_handler, args=(options, possible_local_changes, exit, p.stdout))
+        t.start()
+        return (p, t, exit)
+    else:
+        return None
+
+def monitor_local_changes_stop(monitor_handle):
+    p, t, exit = monitor_handle
+    exit[0] = True
+    p.terminate()
+    # the following is skipped for fast termination
+    #p.wait()
+    #t.join()
+
+def inotifywait_handler(options, possible_local_changes, exit, out_f):
     meta_path = os.path.join(options.working_copy, options.meta)
-    while True:
-        s = src.readline(4096).decode(sys.getdefaultencoding())
+    while not exit[0]:
+        s = out_f.readline(4096).decode(sys.getdefaultencoding())
         if not s: break
         try:
             directory, event, filename = s.split(' ', 3)
             if directory.startswith(meta_path):
                 continue
             sys.stdout.write(s)
-            flag_dict[0] = True
+            possible_local_changes[0] = True
         except ValueError:
             pass
-    src.close()
+    out_f.close()
 
-def monitor_local_changes_start(options, flag_dict):
-    if platform.platform().startswith('Linux'):
-        p = subprocess.Popen(['inotifywait', '--monitor', '--recursive', '--quiet',
-                              '-e', 'modify', '-e', 'attrib', '-e', 'close_write', '-e', 'move', '-e', 'create', '-e', 'delete',
-                                options.working_copy], stdin=subprocess.PIPE, stdout=subprocess.PIPE)
-        p.stdin.close()
-        t = threading.Thread(target=parse_inotifywait_output, args=(p.stdout, options, flag_dict))
-        t.start()
-        return (p, t)
-    else:
-        return None
 
-def monitor_local_changes_stop(monitor_handle):
-    if monitor_handle != None:
-        p, t = monitor_handle
-        p.terminate()
-        p.wait()
-        t.join()
+_POLL_TIMEOUT = 100
+
+def beacon_server_start(options):
+    exit = [False]
+    t = threading.Thread(target=beacon_server_handler, args=(options, exit))
+    t.start()
+    return (t, exit)
+
+def beacon_server_stop(beacon_server_handle):
+    t, exit = beacon_server_handle
+    exit[0] = True
+    # the following is skipped for fast termination
+    #t.join()
+
+def beacon_server_handler(options, exit):
+    #try:
+        context = zmq.Context()
+        sock_rep = context.socket(zmq.REP)
+        sock_rep.bind('tcp://' + options.beacon_server_address[0])
+        sock_pub = context.socket(zmq.PUB)
+        sock_pub.bind('tcp://' + options.beacon_server_address[1])
+        poller = zmq.Poller()
+        poller.register(sock_rep, zmq.POLLIN)
+        while not exit[0]:
+            socks = poller.poll(_POLL_TIMEOUT)
+            if not socks: continue
+            msg = sock_rep.recv()
+            sock_rep.send(b'pong')
+            sock_pub.send(b'ping')
+        sock_pub.close()
+        sock_rep.close()
+        context.term()
+    #except Exception as e:
+    #    print(str(e))
+    #    raise e
+
+def beacon_client_start(options, possible_remote_changes):
+    exit = [False]
+    t = threading.Thread(target=beacon_client_handler, args=(options, possible_remote_changes, exit))
+    t.start()
+    return (t, exit)
+
+def beacon_client_stop(beacon_client_handle):
+    t, exit = beacon_client_handle
+    exit[0] = True
+    # the following is skipped for fast termination
+    #t.join()
+
+def beacon_client_handler(options, possible_remote_changes, exit):
+    #try:
+        context = zmq.Context()
+        sock_sub = None
+        poller = zmq.Poller()
+        while not exit[0]:
+            if sock_sub == None:
+                sock_sub = context.socket(zmq.SUB)
+                sock_sub.connect('tcp://' + options.beacon_server_address[1])
+                sock_sub.setsockopt(zmq.SUBSCRIBE, b'') # subscribe to all messages
+                poller.register(sock_sub, zmq.POLLIN)
+            try:
+                socks = poller.poll(_POLL_TIMEOUT)
+                if not socks: continue
+                msg = sock_sub.recv()
+                possible_remote_changes[0] = True
+            except zmq.ZMQError as e:
+                print(str(e))
+                poller.unregister(sock_sub)
+                sock_sub = None
+                time.sleep(1)
+        if sock_sub != None:
+            sock_sub.close()
+        context.term()
+    #except Exception as e:
+    #    print(str(e))
+
+def signal_beacon(options):
+    context = zmq.Context()
+    sock_req = context.socket(zmq.REQ)
+    sock_req.connect('tcp://' + options.beacon_server_address[0])
+    sock_req.send(b'ping')
+    sock_req.close()
+    context.term()
 
 def sync(options, command):
     sync_forever = (command == 'sync-forever')
@@ -227,8 +316,17 @@ def sync(options, command):
     possible_local_changes = [True]
     possible_remote_changes = [True]
 
+    monitor_handle = None
     if sync_forever and not options.local_polling:
         monitor_handle = monitor_local_changes_start(options, possible_local_changes)
+
+    beacon_server_handle = None
+    if options.beacon_server and options.beacon_server_address != None:
+        beacon_server_handle = beacon_server_start(options)
+
+    beacon_client_handle = None
+    if options.beacon_server_address != None:
+        beacon_client_handle = beacon_client_start(options, possible_remote_changes)
 
     try:
         prev_last_change = None
@@ -237,9 +335,16 @@ def sync(options, command):
         while True:
             cached_possible_local_changes = possible_local_changes[0]
             cached_possible_remote_changes = possible_remote_changes[0]
-            if not options.local_polling and monitor_handle != None:
+            if monitor_handle != None:
                 possible_local_changes[0] = False
-            #possible_remote_changes[0] = False
+            if beacon_client_handle != None:
+                possible_remote_changes[0] = False
+
+            # detect initial commit id
+            for line in run(options.git, git_common_options + ['log', '-1'], print_stdout=False)[1].splitlines():
+                if line.startswith('commit '):
+                    initial_commit_id = line[7:].strip()
+                    break
 
             if cached_possible_local_changes:
                 # try to add local changes
@@ -279,15 +384,28 @@ def sync(options, command):
                         run(options.git, git_common_options + ['checkout', '--force', 'new_master'], print_stdout=(not options.quiet), fatal=True)
                         run(options.git, git_common_options + ['branch', '-M', 'new_master', 'master'], print_stdout=(not options.quiet), fatal=True)
                         run(options.git, git_common_options + ['gc', '--aggressive'], print_stdout=(not options.quiet))
-                    # the merge may have made local commits
-                    cached_possible_local_changes = True
 
-            if cached_possible_local_changes:
+            # detect final commit id
+            for line in run(options.git, git_common_options + ['log', '-1'], print_stdout=False)[1].splitlines():
+                if line.startswith('commit '):
+                    final_commit_id = line[7:].strip()
+                    break
+
+            # figure out if there was indeed local changes
+            actual_local_changes = initial_commit_id != final_commit_id
+
+            if actual_local_changes:
                 # push local master to remote sync_inbox_ID for remote merge
                 if not options.quiet:
                     print('local->remote: push')
                 if has_origin:
                     run(options.git, git_common_options + ['push', '--quiet', '--force', 'origin', 'master:sync_inbox_%s' % inbox_id], print_stdout=(not options.quiet))
+
+                # send beacon signal
+                if beacon_client_handle != None:
+                    if not options.quiet:
+                        print('local->remote: signal')
+                    signal_beacon(options)
 
                 # detect and print the last change time
                 for line in run(options.git, git_common_options + ['log', '-1'], print_stdout=False)[1].splitlines():
@@ -320,8 +438,12 @@ def sync(options, command):
     except KeyboardInterrupt:
         pass
     finally:
-        if sync_forever and not options.local_polling:
+        if monitor_handle != None:
             monitor_local_changes_stop(monitor_handle)
+        if beacon_client_handle != None:
+            beacon_client_stop(beacon_client_handle)
+        if beacon_server_handle != None:
+            beacon_server_stop(beacon_server_handle)
 
     return True
 
@@ -333,13 +455,16 @@ def print_help():
     print('usage: %s [OPTIONS] {init | clone <repository> | serve [<address>:]<port> | squash | sync | sync-forever | <git-command>}' % sys.argv[0])
     print()
     print('Options:')
-    print('  -h                show this help message and exit')
-    print('  -g GIT            git executable path [default: %s]' % GIT_DEFAULT)
-    print('  -m META           git metadata directory name [default: %s]' % META_DEFAULT)
-    print('  -w WORKING_COPY   working copy path [default: %s]' % WORKING_COPY_DEFAULT)
-    print('  -i INTERVAL       interval between sync in sync-forever [default: %s]' % INTERVAL_DEFAULT)
-    print('  -p                use poilling instead of notification in sync-forever')
-    print('  -q                less verbose when syncing')
+    print('  -h               show this help message and exit')
+    print('  -g GIT           git executable path [default: %s]' % GIT_DEFAULT)
+    print('  -m META          git metadata directory name [default: %s]' % META_DEFAULT)
+    print('  -w WORKING_COPY  working copy path [default: %s]' % WORKING_COPY_DEFAULT)
+    print('  -i INTERVAL      interval between sync in sync-forever [default: %s]' % INTERVAL_DEFAULT)
+    print('  -p               use polling instead of notification in sync-forever')
+    print('  -b               run beacon servers')
+    print('  -B <address>:<port>,<address>:<port>\n' \
+          '                   specify beacon server address (e.g., beacon:50000,beacon:50001)')
+    print('  -q               less verbose when syncing')
 
 def main():
     options = Option()
@@ -369,6 +494,12 @@ def main():
         elif args[0] == '-p':
             options.local_polling = True
             args = args[1:]
+        elif args[0] == '-b':
+            options.beacon_server = True
+            args = args[1:]
+        elif args[0] == '-B':
+            options.beacon_server_address = args[1].split(',')
+            args = args[2:]
         elif args[0] == '-q':
             options.quiet = True
             args = args[1:]
