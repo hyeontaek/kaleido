@@ -24,7 +24,10 @@ import subprocess
 import sys
 import time
 import threading
-import zmq
+try:
+    import zmq
+except ImportError:
+    pass
 
 META_DEFAULT = '.kaleido'
 #META_DEFAULT = '.git'    # for debugging; unsafe
