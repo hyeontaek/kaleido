@@ -201,7 +201,7 @@ def monitor_local_changes_stop(monitor_handle):
     p, t, exit = monitor_handle
     exit[0] = True
     p.terminate()
-    # the following is skipped for fast termination
+    # the following is skipped for faster termination
     #p.wait()
     #t.join()
 
@@ -214,7 +214,7 @@ def inotifywait_handler(options, possible_local_changes, exit, out_f):
             directory, event, filename = s.split(' ', 3)
             if directory.startswith(meta_path):
                 continue
-            sys.stdout.write(s)
+            #sys.stdout.write(s)
             possible_local_changes[0] = True
         except ValueError:
             pass
@@ -232,7 +232,7 @@ def beacon_server_start(options):
 def beacon_server_stop(beacon_server_handle):
     t, exit = beacon_server_handle
     exit[0] = True
-    # the following is skipped for fast termination
+    # the following is skipped for faster termination
     #t.join()
 
 def beacon_server_handler(options, exit):
@@ -266,7 +266,7 @@ def beacon_client_start(options, possible_remote_changes):
 def beacon_client_stop(beacon_client_handle):
     t, exit = beacon_client_handle
     exit[0] = True
-    # the following is skipped for fast termination
+    # the following is skipped for faster termination
     #t.join()
 
 def beacon_client_handler(options, possible_remote_changes, exit):
