@@ -48,6 +48,7 @@ class Option:
         self.meta = META_DEFAULT
         self.working_copy = WORKING_COPY_DEFAULT
         self.interval = INTERVAL_DEFAULT
+        self.local_polling = False
         self.quiet = False
 
 def copy_output(src, dst, tee=None):
@@ -174,6 +175,46 @@ def squash(options):
     run(options.git, git_common_options + ['gc', '--aggressive'])
     return True
 
+_no_change_notifications = [
+        (24 * 60 * 60), (12 * 60 * 60), ( 6 * 60 * 60),
+        (     60 * 60), (     30 * 60), (     10 * 60),
+        (          60), (          30), (          10),
+    ]
+
+def parse_inotifywait_output(src, options, flag_dict):
+    meta_path = os.path.join(options.working_copy, options.meta)
+    while True:
+        s = src.readline(4096).decode(sys.getdefaultencoding())
+        if not s: break
+        try:
+            directory, event, filename = s.split(' ', 3)
+            if directory.startswith(meta_path):
+                continue
+            sys.stdout.write(s)
+            flag_dict[0] = True
+        except ValueError:
+            pass
+    src.close()
+
+def monitor_local_changes_start(options, flag_dict):
+    if platform.platform().startswith('Linux'):
+        p = subprocess.Popen(['inotifywait', '--monitor', '--recursive', '--quiet',
+                              '-e', 'modify', '-e', 'attrib', '-e', 'close_write', '-e', 'move', '-e', 'create', '-e', 'delete',
+                                options.working_copy], stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+        p.stdin.close()
+        t = threading.Thread(target=parse_inotifywait_output, args=(p.stdout, options, flag_dict))
+        t.start()
+        return (p, t)
+    else:
+        return None
+
+def monitor_local_changes_stop(monitor_handle):
+    if monitor_handle != None:
+        p, t = monitor_handle
+        p.terminate()
+        p.wait()
+        t.join()
+
 def sync(options, command):
     sync_forever = (command == 'sync-forever')
     inbox_id = open(os.path.join(options.working_copy, options.meta, 'inbox-id'), 'rt').read().strip()
@@ -183,50 +224,72 @@ def sync(options, command):
 
     git_strategy_option = ['--strategy-option', 'theirs'] if detect_git_version(options) >= (1, 7, 0) else []
 
-    no_change_notifications = [
-            (24 * 60 * 60), (12 * 60 * 60), ( 6 * 60 * 60),
-            (     60 * 60), (     30 * 60), (     10 * 60),
-            (          60), (          30), (          10),
-        ]
+    possible_local_changes = [True]
+    possible_remote_changes = [True]
+
+    if sync_forever and not options.local_polling:
+        monitor_handle = monitor_local_changes_start(options, possible_local_changes)
 
     try:
         prev_last_change = None
         last_diff = 0
 
         while True:
-            # commit local changes to local master
-            run(options.git, git_common_options + ['add', '--update'], print_stdout=(not options.quiet))
-            if not run(options.git, git_common_options + ['diff', '--quiet', '--cached'])[0]:
-                # there seems some change to commit
-                run(options.git, git_common_options + ['commit', '--quiet', '--author="%s <%s@kaleido>"' % (inbox_id, inbox_id), '--message=', '--allow-empty-message'], print_stdout=(not options.quiet))
+            cached_possible_local_changes = possible_local_changes[0]
+            cached_possible_remote_changes = possible_remote_changes[0]
+            if not options.local_polling and monitor_handle != None:
+                possible_local_changes[0] = False
+            #possible_remote_changes[0] = False
 
-            # fetch remote master to local sync_inbox_origin for local merge
-            if has_origin:
-                run(options.git, git_common_options + ['fetch', '--quiet', '--force', 'origin', 'master:sync_inbox_origin'], print_stdout=(not options.quiet))
+            if cached_possible_local_changes:
+                # try to add local changes
+                if not options.quiet:
+                    print('local->local:  add')
+                run(options.git, git_common_options + ['add', '--update'], print_stdout=(not options.quiet))
 
-            # merge local sync_inbox_* into local master
-            for branch in list_git_branches(options.git, git_common_options):
-                if not branch.startswith('sync_inbox_'):
-                    continue
-                has_common_ancestor = run(options.git, git_common_options + ['merge-base', 'master', branch], print_stdout=False)[0]
-                if has_common_ancestor:
-                    # merge local master with the origin
-                    run(options.git, git_common_options + ['merge', '--quiet', '--strategy=recursive'] + git_strategy_option + [branch], print_stdout=(not options.quiet))
-                    run(options.git, git_common_options + ['branch', '--delete', branch], print_stdout=False)
-                elif branch == 'sync_inbox_origin':
-                    # the origin has been squashed; apply it locally
-                    run(options.git, git_common_options + ['branch', 'new_master', branch], print_stdout=(not options.quiet), fatal=True)
-                    # this may fail without --force if some un-added file is now included in the tree
-                    run(options.git, git_common_options + ['checkout', '--force', 'new_master'], print_stdout=(not options.quiet), fatal=True)
-                    run(options.git, git_common_options + ['branch', '-M', 'new_master', 'master'], print_stdout=(not options.quiet), fatal=True)
-                    run(options.git, git_common_options + ['gc', '--aggressive'], print_stdout=(not options.quiet))
+                # commit local changes to local master
+                if not options.quiet:
+                    print('local->local:  commit')
+                if not run(options.git, git_common_options + ['diff', '--quiet', '--cached'])[0]:
+                    # there seems some change to commit
+                    run(options.git, git_common_options + ['commit', '--quiet', '--author="%s <%s@kaleido>"' % (inbox_id, inbox_id), '--message=', '--allow-empty-message'], print_stdout=(not options.quiet))
 
-            # push local master to remote sync_inbox_ID for remote merge
-            if has_origin:
-                run(options.git, git_common_options + ['push', '--quiet', '--force', 'origin', 'master:sync_inbox_%s' % inbox_id], print_stdout=(not options.quiet))
+            if cached_possible_remote_changes:
+                # fetch remote master to local sync_inbox_origin for local merge
+                if not options.quiet:
+                    print('remote->local: fetch')
+                if has_origin:
+                    run(options.git, git_common_options + ['fetch', '--quiet', '--force', 'origin', 'master:sync_inbox_origin'], print_stdout=(not options.quiet))
 
-            # detect the last change time
-            if not options.quiet:
+                # merge local sync_inbox_* into local master
+                if not options.quiet:
+                    print('local->local:  merge')
+                for branch in list_git_branches(options.git, git_common_options):
+                    if not branch.startswith('sync_inbox_'):
+                        continue
+                    has_common_ancestor = run(options.git, git_common_options + ['merge-base', 'master', branch], print_stdout=False)[0]
+                    if has_common_ancestor:
+                        # merge local master with the origin
+                        run(options.git, git_common_options + ['merge', '--quiet', '--strategy=recursive'] + git_strategy_option + [branch], print_stdout=(not options.quiet))
+                        run(options.git, git_common_options + ['branch', '--delete', branch], print_stdout=False)
+                    elif branch == 'sync_inbox_origin':
+                        # the origin has been squashed; apply it locally
+                        run(options.git, git_common_options + ['branch', 'new_master', branch], print_stdout=(not options.quiet), fatal=True)
+                        # this may fail without --force if some un-added file is now included in the tree
+                        run(options.git, git_common_options + ['checkout', '--force', 'new_master'], print_stdout=(not options.quiet), fatal=True)
+                        run(options.git, git_common_options + ['branch', '-M', 'new_master', 'master'], print_stdout=(not options.quiet), fatal=True)
+                        run(options.git, git_common_options + ['gc', '--aggressive'], print_stdout=(not options.quiet))
+                    # the merge may have made local commits
+                    cached_possible_local_changes = True
+
+            if cached_possible_local_changes:
+                # push local master to remote sync_inbox_ID for remote merge
+                if not options.quiet:
+                    print('local->remote: push')
+                if has_origin:
+                    run(options.git, git_common_options + ['push', '--quiet', '--force', 'origin', 'master:sync_inbox_%s' % inbox_id], print_stdout=(not options.quiet))
+
+                # detect and print the last change time
                 for line in run(options.git, git_common_options + ['log', '-1'], print_stdout=False)[1].splitlines():
                     if line.startswith('Date: '):
                         last_change_str = line[6:].strip()
@@ -237,17 +300,16 @@ def sync(options, command):
                     # new change
                     diff_msg = get_timediff_str(now - last_change)
                     diff_msg = diff_msg + ' ago' if diff_msg else 'now'
-                    print('last change: %s (%s)' % (email.utils.formatdate(last_change, True), diff_msg))
+                    if not options.quiet:
+                        print('last change: %s (%s)' % (email.utils.formatdate(last_change, True), diff_msg))
                     prev_last_change = last_change
                 else:
                     # no change
-                    no_change_msg = ''
-                    for timespan in no_change_notifications:
+                    for timespan in _no_change_notifications:
                         if last_diff < timespan and now - last_change >= timespan:
-                            no_change_msg = 'no changes in ' + get_timediff_str(timespan)
+                            if not options.quiet:
+                                print('no changes in ' + get_timediff_str(timespan))
                             break
-                    if no_change_msg:
-                        print(no_change_msg)
                 last_diff = now - last_change
 
             if sync_forever:
@@ -257,6 +319,10 @@ def sync(options, command):
                 break
     except KeyboardInterrupt:
         pass
+    finally:
+        if sync_forever and not options.local_polling:
+            monitor_local_changes_stop(monitor_handle)
+
     return True
 
 def git_command(options, command, args):
@@ -269,9 +335,10 @@ def print_help():
     print('Options:')
     print('  -h                show this help message and exit')
     print('  -g GIT            git executable path [default: %s]' % GIT_DEFAULT)
-    print('  -m META           git repository directory name [default: %s]' % META_DEFAULT)
+    print('  -m META           git metadata directory name [default: %s]' % META_DEFAULT)
     print('  -w WORKING_COPY   working copy path [default: %s]' % WORKING_COPY_DEFAULT)
     print('  -i INTERVAL       interval between sync in sync-forever [default: %s]' % INTERVAL_DEFAULT)
+    print('  -p                use poilling instead of notification in sync-forever')
     print('  -q                less verbose when syncing')
 
 def main():
@@ -299,6 +366,9 @@ def main():
         elif args[0] == '-i':
             options.interval = args[1]
             args = args[2:]
+        elif args[0] == '-p':
+            options.local_polling = True
+            args = args[1:]
         elif args[0] == '-q':
             options.quiet = True
             args = args[1:]
