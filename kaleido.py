@@ -190,24 +190,24 @@ def monitor_local_changes_start(options, possible_local_changes):
                               '-e', 'modify', '-e', 'attrib', '-e', 'close_write', '-e', 'move', '-e', 'create', '-e', 'delete',
                                 options.working_copy], stdin=subprocess.PIPE, stdout=subprocess.PIPE)
         p.stdin.close()
-        exit = [False]
-        t = threading.Thread(target=inotifywait_handler, args=(options, possible_local_changes, exit, p.stdout))
+        exiting = [False]
+        t = threading.Thread(target=inotifywait_handler, args=(options, possible_local_changes, exiting, p.stdout))
         t.start()
-        return (p, t, exit)
+        return (p, t, exiting)
     else:
         return None
 
 def monitor_local_changes_stop(monitor_handle):
-    p, t, exit = monitor_handle
-    exit[0] = True
+    p, t, exiting = monitor_handle
+    exiting[0] = True
     p.terminate()
     # the following is skipped for faster termination
     #p.wait()
     #t.join()
 
-def inotifywait_handler(options, possible_local_changes, exit, out_f):
+def inotifywait_handler(options, possible_local_changes, exiting, out_f):
     meta_path = os.path.join(options.working_copy, options.meta)
-    while not exit[0]:
+    while not exiting[0]:
         s = out_f.readline(4096).decode(sys.getdefaultencoding())
         if not s: break
         try:
@@ -224,18 +224,18 @@ def inotifywait_handler(options, possible_local_changes, exit, out_f):
 _POLL_TIMEOUT = 100
 
 def beacon_server_start(options):
-    exit = [False]
-    t = threading.Thread(target=beacon_server_handler, args=(options, exit))
+    exiting = [False]
+    t = threading.Thread(target=beacon_server_handler, args=(options, exiting))
     t.start()
-    return (t, exit)
+    return (t, exiting)
 
 def beacon_server_stop(beacon_server_handle):
-    t, exit = beacon_server_handle
-    exit[0] = True
+    t, exiting = beacon_server_handle
+    exiting[0] = True
     # the following is skipped for faster termination
     #t.join()
 
-def beacon_server_handler(options, exit):
+def beacon_server_handler(options, exiting):
     #try:
         context = zmq.Context()
         sock_rep = context.socket(zmq.REP)
@@ -244,10 +244,10 @@ def beacon_server_handler(options, exit):
         sock_pub.bind('tcp://' + options.beacon_server_address[1])
         poller = zmq.Poller()
         poller.register(sock_rep, zmq.POLLIN)
-        while not exit[0]:
+        while not exiting[0]:
             socks = poller.poll(_POLL_TIMEOUT)
             if not socks: continue
-            msg = sock_rep.recv()
+            sock_rep.recv()
             sock_rep.send(b'pong')
             sock_pub.send(b'ping')
         sock_pub.close()
@@ -258,23 +258,23 @@ def beacon_server_handler(options, exit):
     #    raise e
 
 def beacon_client_start(options, possible_remote_changes):
-    exit = [False]
-    t = threading.Thread(target=beacon_client_handler, args=(options, possible_remote_changes, exit))
+    exiting = [False]
+    t = threading.Thread(target=beacon_client_handler, args=(options, possible_remote_changes, exiting))
     t.start()
-    return (t, exit)
+    return (t, exiting)
 
 def beacon_client_stop(beacon_client_handle):
-    t, exit = beacon_client_handle
-    exit[0] = True
+    t, exiting = beacon_client_handle
+    exiting[0] = True
     # the following is skipped for faster termination
     #t.join()
 
-def beacon_client_handler(options, possible_remote_changes, exit):
+def beacon_client_handler(options, possible_remote_changes, exiting):
     #try:
         context = zmq.Context()
         sock_sub = None
         poller = zmq.Poller()
-        while not exit[0]:
+        while not exiting[0]:
             if sock_sub == None:
                 sock_sub = context.socket(zmq.SUB)
                 sock_sub.connect('tcp://' + options.beacon_server_address[1])
@@ -283,7 +283,7 @@ def beacon_client_handler(options, possible_remote_changes, exit):
             try:
                 socks = poller.poll(_POLL_TIMEOUT)
                 if not socks: continue
-                msg = sock_sub.recv()
+                sock_sub.recv()
                 possible_remote_changes[0] = True
             except zmq.ZMQError as e:
                 print(str(e))
