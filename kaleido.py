@@ -25,9 +25,12 @@ import sys
 import time
 import threading
 try:
+    import win32file
+    import win32con
+except ImportError: pass
+try:
     import zmq
-except ImportError:
-    pass
+except ImportError: pass
 
 META_DEFAULT = '.kaleido'
 #META_DEFAULT = '.git'    # for debugging; unsafe
@@ -217,16 +220,31 @@ def monitor_local_changes_start(options, possible_local_changes):
         t = threading.Thread(target=inotifywait_handler, args=(options, possible_local_changes, exiting, p.stdout))
         t.start()
         return (p, t, exiting)
+    elif platform.platform().startswith('Windows'):
+        FILE_LIST_DIRECTORY = 1
+        h = win32file.CreateFile(options.working_copy, FILE_LIST_DIRECTORY,
+                win32con.FILE_SHARE_READ | win32con.FILE_SHARE_WRITE | win32con.FILE_SHARE_DELETE,
+                None, win32con.OPEN_EXISTING, win32con.FILE_FLAG_BACKUP_SEMANTICS, None)
+        exiting = [False]
+        t = threading.Thread(target=ReadDirectoryChanges_handler, args=(options, possible_local_changes, exiting, h))
+        t.start()
+        return (h, t, exiting)
     else:
+        print('falling back to polling mode')
         return None
 
 def monitor_local_changes_stop(monitor_handle):
-    p, t, exiting = monitor_handle
-    exiting[0] = True
-    p.terminate()
-    # the following is skipped for faster termination
-    #p.wait()
-    #t.join()
+    if platform.platform().startswith('Linux'):
+        p, t, exiting = monitor_handle
+        exiting[0] = True
+        p.terminate()
+        # the following is skipped for faster termination
+        #p.wait()
+        #t.join()
+    elif platform.platform().startswith('Windows'):
+        h, t, exiting = monitor_handle
+        exiting[0] = True
+        win32file.CloseHandle(h)
 
 def inotifywait_handler(options, possible_local_changes, exiting, out_f):
     meta_path = os.path.join(options.working_copy, options.meta)
@@ -242,6 +260,25 @@ def inotifywait_handler(options, possible_local_changes, exiting, out_f):
         except ValueError:
             pass
     out_f.close()
+
+def ReadDirectoryChanges_handler(options, possible_local_changes, exiting, h):
+    meta_path = os.path.join(options.working_copy, options.meta)
+    while not exiting[0]:
+        results = win32file.ReadDirectoryChangesW(h, 1024, True,
+            win32con.FILE_NOTIFY_CHANGE_FILE_NAME |
+            win32con.FILE_NOTIFY_CHANGE_DIR_NAME |
+            win32con.FILE_NOTIFY_CHANGE_ATTRIBUTES |
+            win32con.FILE_NOTIFY_CHANGE_SIZE |
+            win32con.FILE_NOTIFY_CHANGE_LAST_WRITE |
+            win32con.FILE_NOTIFY_CHANGE_SECURITY,
+            None, None)
+        for _, name in results:
+            path = os.path.join(options.working_copy, name)
+            if path.startswith(meta_path):
+                continue
+            #print(path)
+            possible_local_changes[0] = True
+            break
 
 # reducing this helps the program terminate quickl, but increases CPU load at idle
 _POLL_TIMEOUT = 100
