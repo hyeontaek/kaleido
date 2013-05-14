@@ -374,7 +374,7 @@ class RemoteChangeMonitor:
                         self.sb_peers.append([s_new_client, b''])
                     else:
                         msg = s.recv(1)
-                        if not msg:
+                        if not msg or msg != b's':
                             for idx, c in enumerate(self.sb_peers):
                                 if c[0] == s:
                                     if not self.listen:
