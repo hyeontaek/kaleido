@@ -204,7 +204,7 @@ class LocalChangeMonitor:
                 self.t.start()
             else:
                 self.use_polling = True
-        if self.use_po  lling:
+        if self.use_polling:
             print('polling changes in %s' % self.options.working_copy_root)
         # TODO: support Kevent for BSD
         self.running = True
