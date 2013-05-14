@@ -235,7 +235,7 @@ class LocalChangeMonitor:
                     self.flag = True
                 except ValueError:
                     pass
-            out_f.close()
+            self.p.stdout.close()
         #except Exception as e:
         #    print(str(e))
 
