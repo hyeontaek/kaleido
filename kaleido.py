@@ -16,6 +16,7 @@
 # Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
 import email.utils
+import getpass
 import io
 import os
 import platform
@@ -231,6 +232,8 @@ class LocalChangeMonitor:
                 s = self.p.stdout.readline(4096).decode(sys.getdefaultencoding())
                 if not s: break
                 try:
+                    # XXX: this does not work with the directory containing space
+                    # TODO: use inotify directly?
                     directory, event, filename = s.split(' ', 3)
                     if directory.startswith(meta_path):
                         continue
@@ -409,7 +412,7 @@ class Kaleido:
         self.gu.detect_working_copy_root()
         self.gu.set_common_args(self.gu.get_path_args())
         self.gu.call(['config', 'core.bare', 'false'])
-        self.gu.call(['commit', '--author="%s <%s@kaleido>"' % (inbox_id, inbox_id),
+        self.gu.call(['commit', '--author=%s <%s@%s>' % (getpass.getuser(), getpass.getuser(), platform.node()),
                       '--message=', '--allow-empty-message', '--allow-empty'])
         meta_path = os.path.join(self.options.working_copy_root, self.options.meta)
         open(os.path.join(meta_path, 'info', 'exclude'), 'at').write(self.options.meta + '\n')
@@ -521,7 +524,8 @@ class Kaleido:
 
                     # commit local changes to local master
                     #print('local->local:  commit')
-                    self.gu.call(['commit', '--author="%s <%s@kaleido>"' % (inbox_id, inbox_id),
+                    self.gu.call(['commit',
+                                  '--author=%s <%s@%s>' % (getpass.getuser(), getpass.getuser(), platform.node()),
                                   '--message=', '--allow-empty-message'], False)
 
                     if last_commit_id != self.gu.get_last_commit_id():
