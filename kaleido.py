@@ -379,6 +379,8 @@ class RemoteChangeMonitor:
                                 if c[0] == s:
                                     if not self.listen:
                                         print('connection to beacon server closed')
+                                        # avoid tight-loop connection to the server
+                                        time.sleep(1)
                                     del self.sb_peers[idx]
                                     s.close()
                                     break
