@@ -184,7 +184,7 @@ class LocalChangeMonitor:
         self.flag = True    # assume changes initially
         if not self.use_polling:
             if platform.platform().startswith('Linux'):
-                print('monitoring changes in %s' % self.options.working_copy_root)
+                print('monitoring local changes in %s' % self.options.working_copy_root)
                 self.p = subprocess.Popen(['inotifywait', '--monitor', '--recursive', '--quiet',
                                            '-e', 'modify', '-e', 'attrib', '-e', 'close_write',
                                            '-e', 'move', '-e', 'create', '-e', 'delete',
@@ -194,7 +194,7 @@ class LocalChangeMonitor:
                 self.t = threading.Thread(target=self._inotifywait_handler, args=())
                 self.t.start()
             elif platform.platform().startswith('Windows'):
-                print('monitoring changes in %s' % self.options.working_copy_root)
+                print('monitoring local changes in %s' % self.options.working_copy_root)
                 FILE_LIST_DIRECTORY = 1
                 self.h = win32file.CreateFile(self.options.working_copy_root, FILE_LIST_DIRECTORY,
                                               win32con.FILE_SHARE_READ | win32con.FILE_SHARE_WRITE |
@@ -205,7 +205,7 @@ class LocalChangeMonitor:
             else:
                 self.use_polling = True
         if self.use_polling:
-            print('polling changes in %s' % self.options.working_copy_root)
+            print('monitoring local changes in %s (polling)' % self.options.working_copy_root)
         # TODO: support Kevent for BSD
         self.running = True
 
@@ -353,7 +353,7 @@ class RemoteChangeMonitor:
 
                 if self.need_to_send_signal:
                     # broadcast
-                    print('made local changes; sending signal to %d peers' % len(self.sb_peers))
+                    print('notifying %d peers for local changes' % len(self.sb_peers))
                     for c in self.sb_peers:
                         c[1] = b's'
                     self.need_to_send_signal = False
@@ -385,7 +385,7 @@ class RemoteChangeMonitor:
                             self.flag = True
                             if self.listen:
                                 # broadcast except the source
-                                print('received signal from a peer; sending signal to %d peers' % (len(self.sb_peers) - 1))
+                                print('notifying %d peers for remote changes' % (len(self.sb_peers) - 1))
                                 for c in self.sb_peers:
                                     if c[0] != s:
                                         c[1] = b's'
@@ -451,8 +451,7 @@ class Kaleido:
         has_origin = self.gu.call(['config', '--get', 'remote.origin.url'], False)[0] == 0
 
         if has_origin:
-            print('squash must be done at the root working copy with no origin')
-            return False
+            raise Exception('squash must be done at the root working copy with no origin')
 
         tree_id = self.gu.call(['commit-tree', 'HEAD^{tree}'])[1].strip()
         self.gu.call(['branch', 'new_master', tree_id])
@@ -572,7 +571,7 @@ class Kaleido:
                         # new change
                         diff_msg = TimeUtil.get_timediff_str(now - last_change)
                         diff_msg = diff_msg + ' ago' if diff_msg else 'now'
-                        print('last change: %s (%s)' % (email.utils.formatdate(last_change, True), diff_msg))
+                        print('last change at %s (%s)' % (email.utils.formatdate(last_change, True), diff_msg))
                         prev_last_change = last_change
                     else:
                         # no change
