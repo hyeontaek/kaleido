@@ -409,7 +409,7 @@ class Kaleido:
         self.gu.set_common_args(self.gu.get_path_args())
         self.gu.call(['config', 'core.bare', 'false'])
         self.gu.call(['commit', '--author="%s <%s@kaleido>"' % (inbox_id, inbox_id),
-                         '--message=', '--allow-empty-message', '--allow-empty'])
+                      '--message=', '--allow-empty-message', '--allow-empty'])
         meta_path = os.path.join(self.options.working_copy_root, self.options.meta)
         open(os.path.join(meta_path, 'info', 'exclude'), 'at').write(self.options.meta + '\n')
         open(os.path.join(meta_path, 'git-daemon-export-ok'), 'wt')
@@ -434,16 +434,6 @@ class Kaleido:
         self.gu.call(['checkout'])
         return True
 
-    def serve(self, address, port):
-        self.gu.detect_working_copy_root()
-        base_path = os.path.abspath(self.options.working_copy_root)
-        meta_path = os.path.abspath(os.path.join(self.options.working_copy_root, self.options.meta))
-        self.gu.set_common_args(self.gu.get_path_args())
-        self.gu.execute(['daemon', '--reuseaddr', '--strict-paths', '--verbose',
-                         '--enable=upload-pack', '--enable=upload-archive', '--enable=receive-pack',
-                         '--listen=' + address, '--port=' + str(port), '--base-path=' + base_path, meta_path])
-        return True
-
     def beacon(self):
         self.options.beacon_listen = True
         remote_change_monitor = RemoteChangeMonitor(self.options)
@@ -453,6 +443,16 @@ class Kaleido:
                 time.sleep(60)
         finally:
             remote_change_monitor.stop()
+
+    def serve(self, address, port):
+        self.gu.detect_working_copy_root()
+        base_path = os.path.abspath(self.options.working_copy_root)
+        meta_path = os.path.abspath(os.path.join(self.options.working_copy_root, self.options.meta))
+        self.gu.set_common_args(self.gu.get_path_args())
+        self.gu.execute(['daemon', '--reuseaddr', '--strict-paths', '--verbose',
+                         '--enable=upload-pack', '--enable=upload-archive', '--enable=receive-pack',
+                         '--listen=' + address, '--port=' + str(port), '--base-path=' + base_path, meta_path])
+        return True
 
     def squash(self):
         self.gu.detect_working_copy_root()
@@ -521,7 +521,7 @@ class Kaleido:
                     # commit local changes to local master
                     #print('local->local:  commit')
                     self.gu.call(['commit', '--author="%s <%s@kaleido>"' % (inbox_id, inbox_id),
-                                     '--message=', '--allow-empty-message'], False)
+                                  '--message=', '--allow-empty-message'], False)
 
                     if last_commit_id != self.gu.get_last_commit_id():
                         changed = True
@@ -610,7 +610,7 @@ class Kaleido:
 def print_help():
     options = Options()
     print('usage: %s [OPTIONS] ' \
-          '{init | clone <REPOSITORY> | serve <ADDRESS>:<PORT> | beacon | squash | sync | sync-forever | <git-command>}' \
+          '{init | clone <REPOSITORY> | beacon | serve <ADDRESS>:<PORT> | squash | sync | sync-forever | <GIT-COMMAND>}' \
           % sys.argv[0])
     print()
     print('Options:')
