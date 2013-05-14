@@ -266,9 +266,6 @@ class LocalChangeMonitor:
 
 
 class RemoteChangeMonitor:
-    # reducing this helps the program terminate quickly, but increases CPU load at idle
-    _POLL_TIMEOUT = 100
-
     def __init__(self, options):
         self.options = options
         self.use_polling = self.options.remote_polling
@@ -343,6 +340,7 @@ class RemoteChangeMonitor:
                 if not self.listen and not self.sb_peers:
                     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                     s.setblocking(0)
+                    s.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
                     try:
                         print('connecting to beacon server %s:%d' % self.address)
                         s.connect(self.address)
@@ -369,12 +367,15 @@ class RemoteChangeMonitor:
                     if self.listen and s == self.s_server:
                         s_new_client, _ = self.s_server.accept()
                         s_new_client.setblocking(0)
+                        s_new_client.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
                         self.sb_peers.append([s_new_client, b''])
                     else:
                         msg = s.recv(1)
                         if not msg:
                             for idx, c in enumerate(self.sb_peers):
                                 if c[0] == s:
+                                    if not self.listen:
+                                        print('connection to beacon server closed')
                                     del self.sb_peers[idx]
                                     s.close()
                                     break
