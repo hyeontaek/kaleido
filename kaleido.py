@@ -371,10 +371,7 @@ class RemoteChangeMonitor:
                         s_new_client.setblocking(0)
                         self.sb_peers.append([s_new_client, b''])
                     else:
-                        try:
-                            msg = s.recv(1)
-                        except socket.error:
-                            msg = None
+                        msg = s.recv(1)
                         if not msg:
                             for idx, c in enumerate(self.sb_peers):
                                 if c[0] == s:
@@ -447,6 +444,16 @@ class Kaleido:
                          '--listen=' + address, '--port=' + str(port), '--base-path=' + base_path, meta_path])
         return True
 
+    def beacon(self):
+        self.options.beacon_listen = True
+        remote_change_monitor = RemoteChangeMonitor(self.options)
+        remote_change_monitor.start()
+        try:
+            while True:
+                time.sleep(60)
+        finally:
+            remote_change_monitor.stop()
+
     def squash(self):
         self.gu.detect_working_copy_root()
         self.gu.set_common_args(self.gu.get_path_args())
@@ -485,11 +492,8 @@ class Kaleido:
         has_origin = self.gu.call(['config', '--get', 'remote.origin.url'], False)[0] == 0
 
         if not sync_forever:
-            # disable local notification and remote beaon server
+            # disable local notification
             self.options.local_polling = True
-            if self.options.remote_polling and self.options.beacon_listen:
-                self.options.beacon_listen = False
-                self.options.beacon_address = None
 
         local_change_monitor = LocalChangeMonitor(self.options)
         local_change_monitor.start()
@@ -606,7 +610,7 @@ class Kaleido:
 def print_help():
     options = Options()
     print('usage: %s [OPTIONS] ' \
-          '{init | clone <REPOSITORY> | serve <ADDRESS>:<PORT> | squash | sync | sync-forever | <git-command>}' \
+          '{init | clone <REPOSITORY> | serve <ADDRESS>:<PORT> | beacon | squash | sync | sync-forever | <git-command>}' \
           % sys.argv[0])
     print()
     print('Options:')
@@ -617,8 +621,7 @@ def print_help():
     print('  -i INTERVAL      minimum sync interval in sync-forever [default: %f]' % options.interval)
     print('  -p               force using local polling in sync-forever')
     print('  -P               force using remote polling in sync-forever')
-    print('  -b               serve beacon clients')
-    print('  -B <ADDRESS>:<PORT>\n' \
+    print('  -b <ADDRESS>:<PORT>\n' \
           '                   specify beacon address [default: %s:%d]' % options.beacon_address)
     print('  -q               less verbose')
 
@@ -654,9 +657,6 @@ def main():
             options.remote_polling = True
             args = args[1:]
         elif args[0] == '-b':
-            options.beacon_listen = True
-            args = args[1:]
-        elif args[0] == '-B':
             address, port = args[1].split(':', 1)
             options.beacon_address = (address, int(port))
             args = args[2:]
@@ -685,6 +685,8 @@ def main():
             raise Exception('error: too few arguments')
         address, port = args[0].split(':', 1)
         ret = True if Kaleido(options).serve(address, int(port)) else False
+    elif command == 'beacon':
+        ret = True if Kaleido(options).beacon() else False
     elif command == 'squash':
         ret = True if Kaleido(options).squash() else False
     elif command == 'sync':
