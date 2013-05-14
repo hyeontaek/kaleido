@@ -413,9 +413,10 @@ class Kaleido:
         self.gu.call(['config', 'core.bare', 'false'])
         self.gu.call(['commit', '--author="%s <%s@kaleido>"' % (inbox_id, inbox_id),
                          '--message=', '--allow-empty-message', '--allow-empty'])
-        open(os.path.join(self.options.working_copy_root, self.options.meta, 'info', 'exclude'), 'at').write(self.options.meta + '\n')
-        open(os.path.join(self.options.working_copy_root, self.options.meta, 'git-daemon-export-ok'), 'wt')
-        open(os.path.join(self.options.working_copy_root, self.options.meta, 'inbox-id'), 'wt').write(inbox_id + '\n')
+        meta_path = os.path.join(self.options.working_copy_root, self.options.meta)
+        open(os.path.join(meta_path, 'info', 'exclude'), 'at').write(self.options.meta + '\n')
+        open(os.path.join(meta_path, 'git-daemon-export-ok'), 'wt')
+        open(os.path.join(meta_path, 'inbox-id'), 'wt').write(inbox_id + '\n')
         return True
 
     def clone(self, path):
@@ -429,9 +430,10 @@ class Kaleido:
         self.gu.set_common_args(self.gu.get_path_args())
         self.gu.call(['config', 'core.bare', 'false'])
         self.gu.call(['config', 'remote.origin.url', url])
-        open(os.path.join(self.options.working_copy_root, self.options.meta, 'info', 'exclude'), 'at').write(self.options.meta + '\n')
-        open(os.path.join(self.options.working_copy_root, self.options.meta, 'git-daemon-export-ok'), 'wt')
-        open(os.path.join(self.options.working_copy_root, self.options.meta, 'inbox-id'), 'wt').write(inbox_id + '\n')
+        meta_path = os.path.join(self.options.working_copy_root, self.options.meta)
+        open(os.path.join(meta_path, 'info', 'exclude'), 'at').write(self.options.meta + '\n')
+        open(os.path.join(meta_path, 'git-daemon-export-ok'), 'wt')
+        open(os.path.join(meta_path, 'inbox-id'), 'wt').write(inbox_id + '\n')
         self.gu.call(['checkout'])
         return True
 
@@ -474,7 +476,8 @@ class Kaleido:
 
     def _sync(self, sync_forever):
         self.gu.detect_working_copy_root()
-        inbox_id = open(os.path.join(self.options.working_copy_root, self.options.meta, 'inbox-id'), 'rt').read().strip()
+        meta_path = os.path.join(self.options.working_copy_root, self.options.meta)
+        inbox_id = open(os.path.join(meta_path, 'inbox-id'), 'rt').read().strip()
 
         git_strategy_option = ['--strategy-option', 'theirs'] if self.gu.detect_git_version() >= (1, 7, 0) else []
 
@@ -602,7 +605,9 @@ class Kaleido:
 
 def print_help():
     options = Options()
-    print('usage: %s [OPTIONS] {init | clone <repository> | serve <address>:<port> | squash | sync | sync-forever | <git-command>}' % sys.argv[0])
+    print('usage: %s [OPTIONS] ' \
+          '{init | clone <REPOSITORY> | serve <ADDRESS>:<PORT> | squash | sync | sync-forever | <git-command>}' \
+          % sys.argv[0])
     print()
     print('Options:')
     print('  -h               show this help message and exit')
@@ -613,7 +618,7 @@ def print_help():
     print('  -p               force using local polling in sync-forever')
     print('  -P               force using remote polling in sync-forever')
     print('  -b               serve beacon clients')
-    print('  -B <address>:<port>\n' \
+    print('  -B <ADDRESS>:<PORT>\n' \
           '                   specify beacon address [default: %s:%d]' % options.beacon_address)
     print('  -q               less verbose')
 
