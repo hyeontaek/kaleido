@@ -184,6 +184,7 @@ class LocalChangeMonitor:
         self.flag = True    # assume changes initially
         if not self.use_polling:
             if platform.platform().startswith('Linux'):
+                print('monitoring changes in %s' % self.options.working_copy_root)
                 self.p = subprocess.Popen(['inotifywait', '--monitor', '--recursive', '--quiet',
                                            '-e', 'modify', '-e', 'attrib', '-e', 'close_write',
                                            '-e', 'move', '-e', 'create', '-e', 'delete',
@@ -193,6 +194,7 @@ class LocalChangeMonitor:
                 self.t = threading.Thread(target=self._inotifywait_handler, args=())
                 self.t.start()
             elif platform.platform().startswith('Windows'):
+                print('monitoring changes in %s' % self.options.working_copy_root)
                 FILE_LIST_DIRECTORY = 1
                 self.h = win32file.CreateFile(self.options.working_copy_root, FILE_LIST_DIRECTORY,
                                               win32con.FILE_SHARE_READ | win32con.FILE_SHARE_WRITE |
@@ -201,8 +203,9 @@ class LocalChangeMonitor:
                 self.t = threading.Thread(target=self._ReadDirectoryChanges_handler, args=())
                 self.t.start()
             else:
-                print('falling back to polling mode')
                 self.use_polling = True
+        if self.use_po  lling:
+            print('polling changes in %s' % self.options.working_copy_root)
         # TODO: support Kevent for BSD
         self.running = True
 
@@ -299,12 +302,13 @@ class RemoteChangeMonitor:
         if self.address == None:
             self.use_polling = True
         if not self.use_polling:
-            self.sb_clients = []
+            self.sb_peers = []
             if self.listen:
                 self.s_server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                self.s_server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
                 self.s_server.bind(self.address)
-                self.s_server.listen(3)
-                #self.s_server.setblocking(0)
+                self.s_server.listen(5)
+                print('beacon server listening at %s:%d' % self.address)
             self.t = threading.Thread(target=self._handler, args=())
             self.t.start()
         self.running = True
@@ -317,7 +321,7 @@ class RemoteChangeMonitor:
             pending_write = True
             while pending_write:
                 pending_write = False
-                for c in self.sb_clients:
+                for c in self.sb_peers:
                     if c[1]:
                         pending_write = True
                         break
@@ -330,31 +334,33 @@ class RemoteChangeMonitor:
             self.t.join()
             if self.listen:
                 self.s_server.close()
-            for c in self.sb_clients:
+            for c in self.sb_peers:
                 c[0].close()
 
     def _handler(self):
         #try:
             while not self.exiting:
-                if not self.listen and not self.sb_clients:
+                if not self.listen and not self.sb_peers:
                     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                     s.setblocking(0)
                     try:
+                        print('connecting to beacon server %s:%d' % self.address)
                         s.connect(self.address)
                     except socket.error:
                         pass
-                    self.sb_clients.append([s, b''])
+                    self.sb_peers.append([s, b''])
                     self.flag = True    # assume changes because we may have missed signals
 
                 if self.need_to_send_signal:
                     # broadcast
-                    for c in self.sb_clients:
+                    print('made local changes; sending signal to %d peers' % len(self.sb_peers))
+                    for c in self.sb_peers:
                         c[1] = b's'
                     self.need_to_send_signal = False
 
-                socks_to_read = [c[0] for c in self.sb_clients] + ([self.s_server] if self.listen else [])
+                socks_to_read = [c[0] for c in self.sb_peers] + ([self.s_server] if self.listen else [])
                 socks_to_write = []
-                for idx, c in enumerate(self.sb_clients):
+                for idx, c in enumerate(self.sb_peers):
                     if c[1]: socks_to_write.append(c[0])
 
                 rlist, wlist, _ = select.select(socks_to_read, socks_to_write, [], 0.1)
@@ -363,27 +369,28 @@ class RemoteChangeMonitor:
                     if self.listen and s == self.s_server:
                         s_new_client, _ = self.s_server.accept()
                         s_new_client.setblocking(0)
-                        self.sb_clients.append([s_new_client, b''])
+                        self.sb_peers.append([s_new_client, b''])
                     else:
                         try:
                             msg = s.recv(1)
                         except socket.error:
                             msg = None
                         if not msg:
-                            for idx, c in enumerate(self.sb_clients):
+                            for idx, c in enumerate(self.sb_peers):
                                 if c[0] == s:
-                                    del self.sb_clients[idx]
+                                    del self.sb_peers[idx]
                                     s.close()
                                     break
                         else:
                             self.flag = True
                             if self.listen:
                                 # broadcast except the source
-                                for c in self.sb_clients:
+                                print('received signal from a peer; sending signal to %d peers' % (len(self.sb_peers) - 1))
+                                for c in self.sb_peers:
                                     if c[0] != s:
                                         c[1] = b's'
                 for s in wlist:
-                    for idx, c in enumerate(self.sb_clients):
+                    for idx, c in enumerate(self.sb_peers):
                         if c[0] == s:
                             wrote_len = c[0].send(c[1])
                             if wrote_len:
@@ -557,6 +564,7 @@ class Kaleido:
                     # send beacon signal
                     remote_change_monitor.after_sync()
 
+                if changed or not sync_forever:
                     # detect and print the last change time
                     last_change = self.gu.get_last_commit_time()
                     now = time.time()
