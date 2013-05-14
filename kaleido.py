@@ -472,7 +472,7 @@ class Kaleido:
         self.gu.call(['branch', 'new_master', tree_id])
         self.gu.call(['checkout', 'new_master'])
         self.gu.call(['branch', '-M', 'new_master', 'master'])
-        self.gu.call(['gc', '--aggressive'])
+        self.gu.call(['gc', '--aggressive'], False)
         return True
 
     def sync(self):
@@ -559,7 +559,7 @@ class Kaleido:
                             # this may fail without --force if some un-added file is now included in the tree
                             self.gu.call(['checkout', '--force', 'new_master'])
                             self.gu.call(['branch', '-M', 'new_master', 'master'])
-                            self.gu.call(['gc', '--aggressive'])
+                            self.gu.call(['gc', '--aggressive'], False)
                         else:
                             # ignore squash from non-origin sources
                             self.gu.call(['branch', '-D', branch], False)
