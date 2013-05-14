@@ -473,6 +473,13 @@ class Kaleido:
         self.gu.call(['checkout', 'new_master'])
         self.gu.call(['branch', '-M', 'new_master', 'master'])
         self.gu.call(['gc', '--aggressive'], False)
+
+        remote_change_monitor = RemoteChangeMonitor(self.options)
+        remote_change_monitor.start()
+        try:
+            remote_change_monitor.after_sync()
+        finally:
+            remote_change_monitor.stop()
         return True
 
     def sync(self):
@@ -521,11 +528,9 @@ class Kaleido:
                     last_commit_id = self.gu.get_last_commit_id()
 
                     # try to add local changes
-                    #print('local->local:  add')
                     self.gu.call(['add', '--update'], False)
 
                     # commit local changes to local master
-                    #print('local->local:  commit')
                     self.gu.call(['commit',
                                   '--author=%s <%s@%s>' % (getpass.getuser(), getpass.getuser(), platform.node()),
                                   '--message=', '--allow-empty-message'], False)
@@ -539,12 +544,10 @@ class Kaleido:
                     last_commit_id = self.gu.get_last_commit_id()
 
                     # fetch remote master to local sync_inbox_origin for local merge
-                    #print('remote->local: fetch')
                     if has_origin:
                         self.gu.call(['fetch', '--force', 'origin', 'master:sync_inbox_origin'], False)
 
                     # merge local sync_inbox_* into local master
-                    #print('local->local:  merge')
                     for branch in self.gu.list_git_branches():
                         if not branch.startswith('sync_inbox_'):
                             continue
@@ -570,7 +573,6 @@ class Kaleido:
                 # figure out if there was indeed local changes
                 if changed:
                     # push local master to remote sync_inbox_ID for remote merge
-                    #print('local->remote: push')
                     if has_origin:
                         self.gu.call(['push', '--force', 'origin', 'master:sync_inbox_%s' % inbox_id])
 
