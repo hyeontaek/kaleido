@@ -440,15 +440,15 @@ class Kaleido:
         base_path = os.path.abspath(self.options.working_copy_root)
         meta_path = os.path.abspath(os.path.join(self.options.working_copy_root, self.options.meta))
         self.gu.set_common_args(self.gu.get_path_args())
-        self.gu.call(['daemon', '--reuseaddr', '--strict-paths',
+        self.gu.execute(['daemon', '--reuseaddr', '--strict-paths', '--verbose',
                          '--enable=upload-pack', '--enable=upload-archive', '--enable=receive-pack',
-                         '--listen=' + address, '--port=' + port, '--base-path=' + base_path, meta_path])
+                         '--listen=' + address, '--port=' + str(port), '--base-path=' + base_path, meta_path])
         return True
 
     def squash(self):
         self.gu.detect_working_copy_root()
         self.gu.set_common_args(self.gu.get_path_args())
-        has_origin = self.gu.call(['config', '--get', 'remote.origin.url'])[0] == 0
+        has_origin = self.gu.call(['config', '--get', 'remote.origin.url'], False)[0] == 0
 
         if has_origin:
             print('squash must be done at the root working copy with no origin')
@@ -535,7 +535,7 @@ class Kaleido:
                     for branch in self.gu.list_git_branches():
                         if not branch.startswith('sync_inbox_'):
                             continue
-                        has_common_ancestor = self.gu.call(['merge-base', 'master', branch])[0] == 0
+                        has_common_ancestor = self.gu.call(['merge-base', 'master', branch], False)[0] == 0
                         if has_common_ancestor:
                             # merge local master with the origin
                             self.gu.call(['merge', '--strategy=recursive'] + git_strategy_option + [branch], False)
@@ -680,7 +680,7 @@ def main():
         if len(args) < 1:
             raise Exception('error: too few arguments')
         address, port = args[0].split(':', 1)
-        ret = True if Kaleido(options).serve(address, port) else False
+        ret = True if Kaleido(options).serve(address, int(port)) else False
     elif command == 'squash':
         ret = True if Kaleido(options).squash() else False
     elif command == 'sync':
