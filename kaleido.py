@@ -619,8 +619,8 @@ def print_help():
     print('  -m META          git metadata directory name [default: %s]' % options.meta)
     print('  -w WORKING_COPY  working copy path [default: %s]' % options.working_copy)
     print('  -i INTERVAL      minimum sync interval in sync-forever [default: %f]' % options.interval)
-    print('  -p               force using local polling in sync-forever')
-    print('  -P               force using remote polling in sync-forever')
+    print('  -p               force using local change polling')
+    print('  -P               force using remote change polling')
     print('  -b <ADDRESS>:<PORT>\n' \
           '                   specify beacon address [default: %s:%d]' % options.beacon_address)
     print('  -q               less verbose')
