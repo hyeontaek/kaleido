@@ -35,22 +35,24 @@ except ImportError: pass
 
 class Options:
     def __init__(self):
-        if platform.platform().startswith('Linux') or platform.platform().startswith('FreeBSD'):
-            self.git = 'git'
-        elif platform.platform().startswith('Windows'):
-            if platform.architecture()[0] == '64bit':
-                self.git = r'C:\Program Files (x86)\Git\bin\git.exe'
-            else:
-                self.git = r'C:\Program Files\Git\bin\git.exe'
-        else:
-            assert False, 'Not support platform'
+        # if platform.platform().startswith('Linux') or platform.platform().startswith('FreeBSD'):
+        #     self.git = 'git'
+        # elif platform.platform().startswith('Windows'):
+        #     if platform.architecture()[0] == '64bit':
+        #         self.git = r'C:\Program Files (x86)\Git\bin\git.exe'
+        #     else:
+        #         self.git = r'C:\Program Files\Git\bin\git.exe'
+        # else:
+        #     assert False, 'Not support platform'
+        self.git = 'git'
         self.meta = '.kaleido'
         self.working_copy = '.'
-        self.interval = 0.1
+        self.sync_interval = 0.1
         self.local_polling = False
         self.remote_polling = False
         self.beacon_listen = False
         self.beacon_address = ('127.0.0.1', 50000)
+        self.reconnect_interval = 60.
         self.command_after_sync = None
         self.quiet = False
 
@@ -340,8 +342,11 @@ class RemoteChangeMonitor:
 
     def _handler(self):
         #try:
+            last_connect = 0
             while not self.exiting:
-                if not self.listen and not self.sb_peers:
+                if not self.listen and not self.sb_peers and \
+                   time.time() - last_connect >= self.options.reconnect_interval:
+                    last_connect = time.time()
                     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                     s.setblocking(0)
                     s.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
@@ -365,7 +370,10 @@ class RemoteChangeMonitor:
                 for idx, c in enumerate(self.sb_peers):
                     if c[1]: socks_to_write.append(c[0])
 
-                rlist, wlist, _ = select.select(socks_to_read, socks_to_write, [], 0.1)
+                if socks_to_read or socks_to_write:
+                    rlist, wlist, _ = select.select(socks_to_read, socks_to_write, [], 0.1)
+                else:
+                    rlist, wlist = [], []
 
                 for s in rlist:
                     if self.listen and s == self.s_server:
@@ -374,17 +382,18 @@ class RemoteChangeMonitor:
                         s_new_client.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
                         self.sb_peers.append([s_new_client, b''])
                     else:
-                        msg = s.recv(1)
+                        msg = s.recv(4096)
                         if not msg or msg != b's':
                             for idx, c in enumerate(self.sb_peers):
-                                if c[0] == s:
-                                    if not self.listen:
-                                        print('connection to beacon server closed')
-                                        # avoid tight-loop connection to the server
-                                        time.sleep(1)
-                                    del self.sb_peers[idx]
-                                    s.close()
-                                    break
+                                if c[0] != s:
+                                    continue
+                                if not self.listen:
+                                    print('connection to beacon server closed')
+                                    # avoid tight-loop connection to the server
+                                    time.sleep(1)
+                                del self.sb_peers[idx]
+                                s.close()
+                                break
                         else:
                             self.flag = True
                             if self.listen:
@@ -442,7 +451,6 @@ class Kaleido:
         return True
 
     def beacon(self):
-        self.options.beacon_listen = True
         remote_change_monitor = RemoteChangeMonitor(self.options)
         remote_change_monitor.start()
         try:
@@ -508,6 +516,8 @@ class Kaleido:
         if not sync_forever:
             # disable local notification
             self.options.local_polling = True
+            # disable beacon server
+            self.options.beacon_listen = False
 
         local_change_monitor = LocalChangeMonitor(self.options)
         local_change_monitor.start()
@@ -603,7 +613,7 @@ class Kaleido:
                         os.system(self.options.command_after_sync)
 
                 if sync_forever:
-                    time.sleep(self.options.interval)
+                    time.sleep(self.options.sync_interval)
                     continue
                 else:
                     break
@@ -624,19 +634,20 @@ class Kaleido:
 def print_help():
     options = Options()
     print('usage: %s [OPTIONS] ' \
-          '{init | clone <REPOSITORY> | beacon | serve <ADDRESS>:<PORT> | squash | sync | sync-forever | <GIT-COMMAND>}' \
-          % sys.argv[0])
+          '{ init | clone REPOSITORY | beacon | serve ADDRESS:PORT | ' \
+          '  squash | sync | sync-forever | GIT-COMMAND }' % sys.argv[0])
     print()
     print('Options:')
     print('  -h               show this help message and exit')
     print('  -g GIT           git executable path [default: %s]' % options.git)
     print('  -m META          git metadata directory name [default: %s]' % options.meta)
     print('  -w WORKING_COPY  working copy path [default: %s]' % options.working_copy)
-    print('  -i INTERVAL      minimum sync interval in sync-forever [default: %f]' % options.interval)
+    print('  -i INTERVAL      minimum sync interval in sync-forever [default: %s]' % options.sync_interval)
     print('  -p               force using local change polling')
     print('  -P               force using remote change polling')
-    print('  -b <ADDRESS>:<PORT>\n' \
-          '                   specify beacon address [default: %s:%d]' % options.beacon_address)
+    print('  -b ADDRESS:PORT  specify beacon address [default: %s:%d]' % options.beacon_address)
+    print('  -B               enable the beacon server in sync-forever')
+    print('  -t INTERVAL      minimum interval for beacon reconnection [default: %s]' % options.reconnect_interval)
     print('  -c CMD           run the command after sync')
     print('  -q               less verbose')
 
@@ -663,7 +674,7 @@ def main():
             options.working_copy = args[1]
             args = args[2:]
         elif args[0] == '-i':
-            options.interval = float(args[1])
+            options.sync_interval = float(args[1])
             args = args[2:]
         elif args[0] == '-p':
             options.local_polling = True
@@ -674,6 +685,12 @@ def main():
         elif args[0] == '-b':
             address, port = args[1].split(':', 1)
             options.beacon_address = (address, int(port))
+            args = args[2:]
+        elif args[0] == '-B':
+            options.beacon_listen = True
+            args = args[1:]
+        elif args[0] == '-t':
+            options.reconnect_interval = float(args[1])
             args = args[2:]
         elif args[0] == '-c':
             options.command_after_sync = args[1]
@@ -704,6 +721,7 @@ def main():
         address, port = args[0].split(':', 1)
         ret = True if Kaleido(options).serve(address, int(port)) else False
     elif command == 'beacon':
+        options.beacon_listen = True
         ret = True if Kaleido(options).beacon() else False
     elif command == 'squash':
         ret = True if Kaleido(options).squash() else False
