@@ -120,7 +120,7 @@ class GitUtil:
                 self.options.working_copy_root = path
                 return
             path = os.path.dirname(path)
-        raise Exception('error: cannot find %s' % self.options.meta)
+        raise Exception('cannot find %s' % self.options.meta)
 
     def get_path_args(self):
         return ['--git-dir=' + os.path.join(self.options.working_copy_root, self.options.meta),
@@ -718,18 +718,18 @@ def main():
 
     if command == 'init':
         if os.path.exists(os.path.join(options.working_copy, options.meta)):
-            raise Exception('error: %s directory already exists' % options.meta)
+            raise Exception('%s directory already exists' % options.meta)
         ret = True if Kaleido(options).init() else False
     elif command == 'clone':
         if len(args) < 1:
-            raise Exception('error: too few arguments')
+            raise Exception('too few arguments')
         elif os.path.exists(os.path.join(options.working_copy, options.meta)):
-            raise Exception('error: %s directory already exists' % options.meta)
+            raise Exception('%s directory already exists' % options.meta)
         path = args[0]
         ret = True if Kaleido(options).clone(path) else False
     elif command == 'serve':
         if len(args) < 1:
-            raise Exception('error: too few arguments')
+            raise Exception('too few arguments')
         address, port = args[0].split(':', 1)
         ret = True if Kaleido(options).serve(address, int(port)) else False
     elif command == 'beacon':
