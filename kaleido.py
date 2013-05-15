@@ -35,15 +35,6 @@ except ImportError: pass
 
 class Options:
     def __init__(self):
-        # if platform.platform().startswith('Linux') or platform.platform().startswith('FreeBSD'):
-        #     self.git = 'git'
-        # elif platform.platform().startswith('Windows'):
-        #     if platform.architecture()[0] == '64bit':
-        #         self.git = r'C:\Program Files (x86)\Git\bin\git.exe'
-        #     else:
-        #         self.git = r'C:\Program Files\Git\bin\git.exe'
-        # else:
-        #     assert False, 'Not support platform'
         self.git = 'git'
         self.meta = '.kaleido'
         self.working_copy = '.'
@@ -229,46 +220,40 @@ class LocalChangeMonitor:
                 #self.t.join()
 
     def _inotifywait_handler(self):
-        #try:
-            meta_path = os.path.join(self.options.working_copy_root, self.options.meta)
-            while not self.exiting:
-                s = self.p.stdout.readline(4096).decode(sys.getdefaultencoding())
-                if not s: break
-                try:
-                    # XXX: this does not work with the directory containing space
-                    # TODO: use inotify directly?
-                    directory, event, filename = s.split(' ', 3)
-                    if directory.startswith(meta_path):
-                        continue
-                    #sys.stdout.write(s)
-                    self.flag = True
-                except ValueError:
-                    pass
-            self.p.stdout.close()
-        #except Exception as e:
-        #    print(str(e))
+        meta_path = os.path.join(self.options.working_copy_root, self.options.meta)
+        while not self.exiting:
+            s = self.p.stdout.readline(4096).decode(sys.getdefaultencoding())
+            if not s: break
+            try:
+                # XXX: this does not work with the directory containing space
+                # TODO: use inotify directly?
+                directory, event, filename = s.split(' ', 3)
+                if directory.startswith(meta_path):
+                    continue
+                #sys.stdout.write(s)
+                self.flag = True
+            except ValueError:
+                pass
+        self.p.stdout.close()
 
     def _ReadDirectoryChanges_handler(self):
-        #try:
-            meta_path = os.path.join(self.options.working_copy_root, self.options.meta)
-            while not self.exiting:
-                results = win32file.ReadDirectoryChangesW(self.h, 1024, True,
-                                                          win32con.FILE_NOTIFY_CHANGE_FILE_NAME |
-                                                          win32con.FILE_NOTIFY_CHANGE_DIR_NAME |
-                                                          win32con.FILE_NOTIFY_CHANGE_ATTRIBUTES |
-                                                          win32con.FILE_NOTIFY_CHANGE_SIZE |
-                                                          win32con.FILE_NOTIFY_CHANGE_LAST_WRITE |
-                                                          win32con.FILE_NOTIFY_CHANGE_SECURITY,
-                                                          None, None)
-                for _, name in results:
-                    path = os.path.join(self.options.working_copy_root, name)
-                    if path.startswith(meta_path):
-                        continue
-                    #print(path)
-                    self.flag = True
-                    break
-        #except Exception as e:
-        #    print(str(e))
+        meta_path = os.path.join(self.options.working_copy_root, self.options.meta)
+        while not self.exiting:
+            results = win32file.ReadDirectoryChangesW(self.h, 1024, True,
+                                                      win32con.FILE_NOTIFY_CHANGE_FILE_NAME |
+                                                      win32con.FILE_NOTIFY_CHANGE_DIR_NAME |
+                                                      win32con.FILE_NOTIFY_CHANGE_ATTRIBUTES |
+                                                      win32con.FILE_NOTIFY_CHANGE_SIZE |
+                                                      win32con.FILE_NOTIFY_CHANGE_LAST_WRITE |
+                                                      win32con.FILE_NOTIFY_CHANGE_SECURITY,
+                                                      None, None)
+            for _, name in results:
+                path = os.path.join(self.options.working_copy_root, name)
+                if path.startswith(meta_path):
+                    continue
+                #print(path)
+                self.flag = True
+                break
 
 
 class RemoteChangeMonitor:
@@ -341,75 +326,72 @@ class RemoteChangeMonitor:
                 c[0].close()
 
     def _handler(self):
-        #try:
-            last_connect = 0
-            while not self.exiting:
-                if not self.listen and not self.sb_peers and \
-                   time.time() - last_connect >= self.options.reconnect_interval:
-                    last_connect = time.time()
-                    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                    s.setblocking(0)
-                    s.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
-                    try:
-                        print('connecting to beacon server %s:%d' % self.address)
-                        s.connect(self.address)
-                    except socket.error:
-                        pass
-                    self.sb_peers.append([s, b''])
-                    self.flag = True    # assume changes because we may have missed signals
+        last_connect = 0
+        while not self.exiting:
+            if not self.listen and not self.sb_peers and \
+               time.time() - last_connect >= self.options.reconnect_interval:
+                last_connect = time.time()
+                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                s.setblocking(0)
+                s.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+                try:
+                    print('connecting to beacon server %s:%d' % self.address)
+                    s.connect(self.address)
+                except socket.error:
+                    pass
+                self.sb_peers.append([s, b''])
+                self.flag = True    # assume changes because we may have missed signals
 
-                if self.need_to_send_signal:
-                    # broadcast
-                    print('notifying %d peers for local changes' % len(self.sb_peers))
-                    for c in self.sb_peers:
-                        c[1] = b's'
-                    self.need_to_send_signal = False
+            if self.need_to_send_signal:
+                # broadcast
+                print('notifying %d peers for local changes' % len(self.sb_peers))
+                for c in self.sb_peers:
+                    c[1] = b's'
+                self.need_to_send_signal = False
 
-                socks_to_read = [c[0] for c in self.sb_peers] + ([self.s_server] if self.listen else [])
-                socks_to_write = []
-                for idx, c in enumerate(self.sb_peers):
-                    if c[1]: socks_to_write.append(c[0])
+            socks_to_read = [c[0] for c in self.sb_peers] + ([self.s_server] if self.listen else [])
+            socks_to_write = []
+            for idx, c in enumerate(self.sb_peers):
+                if c[1]: socks_to_write.append(c[0])
 
-                if socks_to_read or socks_to_write:
-                    rlist, wlist, _ = select.select(socks_to_read, socks_to_write, [], 0.1)
+            if socks_to_read or socks_to_write:
+                rlist, wlist, _ = select.select(socks_to_read, socks_to_write, [], 0.1)
+            else:
+                rlist, wlist = [], []
+
+            for s in rlist:
+                if self.listen and s == self.s_server:
+                    s_new_client, _ = self.s_server.accept()
+                    s_new_client.setblocking(0)
+                    s_new_client.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+                    self.sb_peers.append([s_new_client, b''])
                 else:
-                    rlist, wlist = [], []
-
-                for s in rlist:
-                    if self.listen and s == self.s_server:
-                        s_new_client, _ = self.s_server.accept()
-                        s_new_client.setblocking(0)
-                        s_new_client.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
-                        self.sb_peers.append([s_new_client, b''])
+                    msg = s.recv(4096)
+                    if not msg or msg != b's':
+                        for idx, c in enumerate(self.sb_peers):
+                            if c[0] != s:
+                                continue
+                            if not self.listen:
+                                print('connection to beacon server closed')
+                                # avoid tight-loop connection to the server
+                                time.sleep(1)
+                            del self.sb_peers[idx]
+                            s.close()
+                            break
                     else:
-                        msg = s.recv(4096)
-                        if not msg or msg != b's':
-                            for idx, c in enumerate(self.sb_peers):
+                        self.flag = True
+                        if self.listen:
+                            # broadcast except the source
+                            print('notifying %d peers for remote changes' % (len(self.sb_peers) - 1))
+                            for c in self.sb_peers:
                                 if c[0] != s:
-                                    continue
-                                if not self.listen:
-                                    print('connection to beacon server closed')
-                                    # avoid tight-loop connection to the server
-                                    time.sleep(1)
-                                del self.sb_peers[idx]
-                                s.close()
-                                break
-                        else:
-                            self.flag = True
-                            if self.listen:
-                                # broadcast except the source
-                                print('notifying %d peers for remote changes' % (len(self.sb_peers) - 1))
-                                for c in self.sb_peers:
-                                    if c[0] != s:
-                                        c[1] = b's'
-                for s in wlist:
-                    for idx, c in enumerate(self.sb_peers):
-                        if c[0] == s:
-                            wrote_len = c[0].send(c[1])
-                            if wrote_len:
-                                c[1] = b''
-        #except Exception as e:
-        #    print(str(e))
+                                    c[1] = b's'
+            for s in wlist:
+                for idx, c in enumerate(self.sb_peers):
+                    if c[0] == s:
+                        wrote_len = c[0].send(c[1])
+                        if wrote_len:
+                            c[1] = b''
 
 
 class Kaleido:
@@ -748,4 +730,3 @@ def main():
 
 if __name__ == '__main__':
     sys.exit(main())
-
