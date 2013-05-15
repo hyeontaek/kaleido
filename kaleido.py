@@ -81,7 +81,7 @@ class GitUtil:
         threads = []
         stdout_buf = io.StringIO()
         stderr_buf = io.StringIO()
-        tee_stdout = None #sys.stdout
+        tee_stdout = None
         tee_stderr = None if self.options.quiet else sys.stderr
         threads.append(threading.Thread(target=GitUtil._copy_output, args=(p.stdout, stdout_buf, tee_stdout)))
         threads.append(threading.Thread(target=GitUtil._copy_output, args=(p.stderr, stderr_buf, tee_stderr)))
