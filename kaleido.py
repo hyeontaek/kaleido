@@ -630,13 +630,13 @@ def print_help():
     print('  -g GIT              Set the git executable path [default: %s]' % options.git)
     print('  -m META             Set the git metadata directory name [default: %s]' % options.meta)
     print('  -w WORKING_COPY     Set the working copy path [default: %s]' % options.working_copy)
-    print('  -i INTERVAL         Specify the minimum sync interval in sync-forever [default: %s]' % \
+    print('  -i INTERVAL         Set the minimum sync interval in sync-forever [default: %s sec]' % \
           options.sync_interval)
     print('  -p                  Force using polling to detect local changes')
     print('  -P                  Force using polling to detect remote changes')
     print('  -b ADDRESS:PORT     Specify the beacon address [default: %s:%d]' % options.beacon_address)
     print('  -B                  Enable the beacon server in sync-forever')
-    print('  -t INTERVAL         Set the minimum interval for beacon reconnection [default: %s]' % \
+    print('  -t INTERVAL         Set the minimum interval for beacon reconnection [default: %s sec]' % \
           options.reconnect_interval)
     print('  -c COMMAND          Run a user command after sync')
     print('  -q                  Be less verbose')
