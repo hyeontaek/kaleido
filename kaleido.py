@@ -51,6 +51,7 @@ class Options:
         self.remote_polling = False
         self.beacon_listen = False
         self.beacon_address = ('127.0.0.1', 50000)
+        self.command_after_sync = None
         self.quiet = False
 
 
@@ -597,6 +598,10 @@ class Kaleido:
                                 break
                     last_diff = now - last_change
 
+                if changed:
+                    if self.options.command_after_sync != None:
+                        os.system(self.options.command_after_sync)
+
                 if sync_forever:
                     time.sleep(self.options.interval)
                     continue
@@ -632,6 +637,7 @@ def print_help():
     print('  -P               force using remote change polling')
     print('  -b <ADDRESS>:<PORT>\n' \
           '                   specify beacon address [default: %s:%d]' % options.beacon_address)
+    print('  -c CMD           run the command after sync')
     print('  -q               less verbose')
 
 def main():
@@ -668,6 +674,9 @@ def main():
         elif args[0] == '-b':
             address, port = args[1].split(':', 1)
             options.beacon_address = (address, int(port))
+            args = args[2:]
+        elif args[0] == '-c':
+            options.command_after_sync = args[1]
             args = args[2:]
         elif args[0] == '-q':
             options.quiet = True
