@@ -47,6 +47,9 @@ class Options:
         self.command_after_sync = None
         self.quiet = False
 
+    def meta_path(self):
+        return os.path.join(self.working_copy_root, self.meta)
+
 
 class GitUtil:
     def __init__(self, options):
@@ -61,7 +64,7 @@ class GitUtil:
         while True:
             s = src.readline(4096).decode(sys.getdefaultencoding())
             if not s: break
-            dest.write(s)
+            if dest: dest.write(s)
             if tee: tee.write('  ' + s)
         src.close()
 
@@ -74,7 +77,7 @@ class GitUtil:
 
         threads = []
         stdout_buf = io.StringIO()
-        stderr_buf = io.StringIO()
+        stderr_buf = None
         tee_stdout = None
         tee_stderr = None if self.options.quiet else sys.stderr
         threads.append(threading.Thread(target=GitUtil._copy_output, args=(p.stdout, stdout_buf, tee_stdout)))
@@ -86,7 +89,7 @@ class GitUtil:
         if must_succeed and ret != 0:
             raise RuntimeError('git returned %d' % ret)
         
-        return (ret, stdout_buf.getvalue(), stderr_buf.getvalue())
+        return (ret, stdout_buf.getvalue())
 
     def execute(self, args, must_succeed=True):
         #if not self.options.quiet:
@@ -96,7 +99,7 @@ class GitUtil:
         if must_succeed and ret != 0:
             raise RuntimeError('git returned %d' % ret)
 
-        return (ret, '', '')
+        return (ret, '')
 
     def detect_git_version(self):
         version = self.call(['--version'])[1]
@@ -105,7 +108,7 @@ class GitUtil:
         return version
 
     def detect_working_copy_root(self):
-        path = os.path.abspath(os.path.join(self.options.working_copy))
+        path = os.path.abspath(self.options.working_copy)
         while path != os.path.dirname(path):
             if os.path.exists(os.path.join(path, self.options.meta)):
                 self.options.working_copy_root = path
@@ -114,8 +117,7 @@ class GitUtil:
         raise Exception('cannot find %s' % self.options.meta)
 
     def get_path_args(self):
-        return ['--git-dir=' + os.path.join(self.options.working_copy_root, self.options.meta),
-                '--work-tree=' + self.options.working_copy_root]
+        return ['--git-dir=' + self.options.meta_path(), '--work-tree=' + self.options.working_copy_root]
 
     def list_git_branches(self):
         for line in self.call(['branch', '--no-color'])[1].splitlines():
@@ -220,7 +222,7 @@ class LocalChangeMonitor:
                 #self.t.join()
 
     def _inotifywait_handler(self):
-        meta_path = os.path.join(self.options.working_copy_root, self.options.meta)
+        meta_path = self.options.meta_path()
         while not self.exiting:
             s = self.p.stdout.readline(4096).decode(sys.getdefaultencoding())
             if not s: break
@@ -237,7 +239,7 @@ class LocalChangeMonitor:
         self.p.stdout.close()
 
     def _ReadDirectoryChanges_handler(self):
-        meta_path = os.path.join(self.options.working_copy_root, self.options.meta)
+        meta_path = self.options.meta_path()
         while not self.exiting:
             results = win32file.ReadDirectoryChangesW(self.h, 1024, True,
                                                       win32con.FILE_NOTIFY_CHANGE_FILE_NAME |
@@ -361,13 +363,16 @@ class RemoteChangeMonitor:
 
             for s in rlist:
                 if self.listen and s == self.s_server:
-                    s_new_client, _ = self.s_server.accept()
+                    s_new_client, addr = self.s_server.accept()
+                    print('new peer from %s:%d' % addr)
                     s_new_client.setblocking(0)
                     s_new_client.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
                     self.sb_peers.append([s_new_client, b''])
                 else:
                     msg = s.recv(4096)
                     if not msg or msg != b's':
+                        if msg:
+                            print('unexpected response from %s:%d' % s.getpeername())
                         for idx, c in enumerate(self.sb_peers):
                             if c[0] != s:
                                 continue
@@ -376,6 +381,7 @@ class RemoteChangeMonitor:
                                 # avoid tight-loop connection to the server
                                 time.sleep(1)
                             del self.sb_peers[idx]
+                            print('connection to %s:%d closed' % s.getpeername())
                             s.close()
                             break
                     else:
@@ -408,7 +414,7 @@ class Kaleido:
         self.gu.call(['config', 'core.bare', 'false'])
         self.gu.call(['commit', '--author=%s <%s@%s>' % (getpass.getuser(), getpass.getuser(), platform.node()),
                       '--message=', '--allow-empty-message', '--allow-empty'])
-        meta_path = os.path.join(self.options.working_copy_root, self.options.meta)
+        meta_path = self.options.meta_path()
         open(os.path.join(meta_path, 'info', 'exclude'), 'at').write(self.options.meta + '\n')
         open(os.path.join(meta_path, 'git-daemon-export-ok'), 'wt')
         open(os.path.join(meta_path, 'inbox-id'), 'wt').write(inbox_id + '\n')
@@ -425,7 +431,7 @@ class Kaleido:
         self.gu.set_common_args(self.gu.get_path_args())
         self.gu.call(['config', 'core.bare', 'false'])
         self.gu.call(['config', 'remote.origin.url', url])
-        meta_path = os.path.join(self.options.working_copy_root, self.options.meta)
+        meta_path = self.options.meta_path()
         open(os.path.join(meta_path, 'info', 'exclude'), 'at').write(self.options.meta + '\n')
         open(os.path.join(meta_path, 'git-daemon-export-ok'), 'wt')
         open(os.path.join(meta_path, 'inbox-id'), 'wt').write(inbox_id + '\n')
@@ -444,7 +450,7 @@ class Kaleido:
     def serve(self, address, port):
         self.gu.detect_working_copy_root()
         base_path = os.path.abspath(self.options.working_copy_root)
-        meta_path = os.path.abspath(os.path.join(self.options.working_copy_root, self.options.meta))
+        meta_path = self.options.meta_path()
         self.gu.set_common_args(self.gu.get_path_args())
         self.gu.execute(['daemon', '--reuseaddr', '--strict-paths', '--verbose',
                          '--enable=upload-pack', '--enable=upload-archive', '--enable=receive-pack',
@@ -487,7 +493,7 @@ class Kaleido:
 
     def _sync(self, sync_forever):
         self.gu.detect_working_copy_root()
-        meta_path = os.path.join(self.options.working_copy_root, self.options.meta)
+        meta_path = self.options.meta_path()
         inbox_id = open(os.path.join(meta_path, 'inbox-id'), 'rt').read().strip()
 
         git_strategy_option = ['--strategy-option', 'theirs'] if self.gu.detect_git_version() >= (1, 7, 0) else []
