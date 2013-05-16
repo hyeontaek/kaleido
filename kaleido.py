@@ -336,6 +336,7 @@ class RemoteChangeMonitor:
                 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 s.setblocking(0)
                 s.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+                s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
                 try:
                     print('connecting to beacon server %s:%d' % self.address)
                     s.connect(self.address)
@@ -367,9 +368,13 @@ class RemoteChangeMonitor:
                     print('new peer from %s:%d' % addr)
                     s_new_client.setblocking(0)
                     s_new_client.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+                    s_new_client.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
                     self.sb_peers.append([s_new_client, b''])
                 else:
-                    msg = s.recv(4096)
+                    try:
+                        msg = s.recv(4096)
+                    except socket.error:
+                        msg = None
                     if not msg or msg != b's':
                         if msg:
                             print('unexpected response from %s:%d' % s.getpeername())
@@ -395,7 +400,10 @@ class RemoteChangeMonitor:
             for s in wlist:
                 for idx, c in enumerate(self.sb_peers):
                     if c[0] == s:
-                        wrote_len = c[0].send(c[1])
+                        try:
+                            wrote_len = c[0].send(c[1])
+                        except socket.error:
+                            wrote_len = 0
                         if wrote_len:
                             c[1] = b''
 
