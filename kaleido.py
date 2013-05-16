@@ -611,9 +611,9 @@ class Kaleido:
                     # no change
                     for timespan in self._no_change_notifications:
                         if last_diff < timespan and now - prev_last_change >= timespan:
-                            print('no changes in ' + TimeUtil.get_timediff_str(timespan))
+                            last_diff = now - prev_last_change
+                            print('no changes in ' + TimeUtil.get_timediff_str(last_diff))
                             break
-                    last_diff = now - prev_last_change
 
                 if changed:
                     if self.options.command_after_sync != None:
