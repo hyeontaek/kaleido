@@ -44,6 +44,7 @@ class Options:
         self.beacon_listen = False
         self.beacon_address = ('127.0.0.1', 50000)
         self.reconnect_interval = 60.
+        self.control_address = ('127.0.0.1', 0)
         self.command_after_sync = None
         self.quiet = False
 
@@ -262,8 +263,9 @@ class RemoteChangeMonitor:
     def __init__(self, options):
         self.options = options
         self.use_polling = self.options.remote_polling
-        self.listen = self.options.beacon_listen
-        self.address = self.options.beacon_address
+        self.beacon_listen = self.options.beacon_listen
+        self.beacon_address = self.options.beacon_address
+        self.control_address = self.options.control_address
         self.running = False
         self.exiting = False
         self.flag = False
@@ -283,54 +285,59 @@ class RemoteChangeMonitor:
     def after_sync(self):
         if not self.use_polling:
             self.need_to_send_signal = True
+            self.s_control_client.sendto(b'w', self.control_address)
 
     def start(self):
         assert not self.running
         self.exiting = False
         self.flag = True    # assume changes initially
         self.need_to_send_signal = False
-        if self.address == None:
+        if self.beacon_address == None:
             self.use_polling = True
         if not self.use_polling:
             self.sb_peers = []
-            if self.listen:
+            if self.beacon_listen:
                 self.s_server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 self.s_server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-                self.s_server.bind(self.address)
+                self.s_server.bind(self.beacon_address)
                 self.s_server.listen(5)
-                print('beacon server listening at %s:%d' % self.address)
+                print('beacon server listening at %s:%d' % self.beacon_address)
+            self.s_control_server = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            self.s_control_server.bind(self.control_address)
+            self.control_address = self.s_control_server.getsockname()
+            self.s_control_client = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             self.t = threading.Thread(target=self._handler, args=())
             self.t.start()
         self.running = True
 
     def stop(self):
         assert self.running
-        if not self.use_polling:
-            while self.need_to_send_signal:
-                time.sleep(0.1)
-            pending_write = True
-            while pending_write:
-                pending_write = False
-                for c in self.sb_peers:
-                    if c[1]:
-                        pending_write = True
-                        break
-                if not pending_write:
-                    break
-                time.sleep(0.1)
         self.exiting = True
-        self.running = False
         if not self.use_polling:
+            self.s_control_client.sendto(b'w', self.control_address)
             self.t.join()
-            if self.listen:
+            if self.beacon_listen:
                 self.s_server.close()
             for c in self.sb_peers:
                 c[0].close()
+            self.s_control_client.close()
+            self.s_control_server.close()
+        self.running = False
 
     def _handler(self):
         last_connect = 0
-        while not self.exiting:
-            if not self.listen and not self.sb_peers and \
+        while True:
+            if self.exiting:
+                can_exit = True
+                if self.need_to_send_signal:
+                    can_exit = False
+                else:
+                    for c in self.sb_peers:
+                        if c[1]:
+                            can_exit = False
+                if can_exit:
+                    break
+            if not self.beacon_listen and not self.sb_peers and \
                time.time() - last_connect >= self.options.reconnect_interval:
                 last_connect = time.time()
                 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -338,8 +345,8 @@ class RemoteChangeMonitor:
                 s.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
                 s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
                 try:
-                    print('connecting to beacon server %s:%d' % self.address)
-                    s.connect(self.address)
+                    print('connecting to beacon server %s:%d' % self.beacon_address)
+                    s.connect(self.beacon_address)
                 except socket.error:
                     pass
                 self.sb_peers.append([s, b''])
@@ -352,18 +359,21 @@ class RemoteChangeMonitor:
                     c[1] = b's'
                 self.need_to_send_signal = False
 
-            socks_to_read = [c[0] for c in self.sb_peers] + ([self.s_server] if self.listen else [])
+            socks_to_read = [self.s_control_server] + [c[0] for c in self.sb_peers] + ([self.s_server] if self.beacon_listen else [])
             socks_to_write = []
             for idx, c in enumerate(self.sb_peers):
                 if c[1]: socks_to_write.append(c[0])
 
             if socks_to_read or socks_to_write:
-                rlist, wlist, _ = select.select(socks_to_read, socks_to_write, [], 0.1)
+                rlist, wlist, _ = select.select(socks_to_read, socks_to_write, [])
             else:
                 rlist, wlist = [], []
 
             for s in rlist:
-                if self.listen and s == self.s_server:
+                if s == self.s_control_server:
+                    msg = s.recvfrom(4096)  # no-op; the purpose is to just escape select()
+                    continue
+                elif self.beacon_listen and s == self.s_server:
                     s_new_client, addr = self.s_server.accept()
                     print('new peer from %s:%d' % addr)
                     s_new_client.setblocking(0)
@@ -381,7 +391,7 @@ class RemoteChangeMonitor:
                         for idx, c in enumerate(self.sb_peers):
                             if c[0] != s:
                                 continue
-                            if not self.listen:
+                            if not self.beacon_listen:
                                 print('connection to beacon server closed')
                                 # avoid tight-loop connection to the server
                                 time.sleep(1)
@@ -391,7 +401,7 @@ class RemoteChangeMonitor:
                             break
                     else:
                         self.flag = True
-                        if self.listen:
+                        if self.beacon_listen:
                             # broadcast except the source
                             print('notifying %d peers for remote changes' % (len(self.sb_peers) - 1))
                             for c in self.sb_peers:
@@ -642,10 +652,11 @@ def print_help():
           options.sync_interval)
     print('  -p                  Force using polling to detect local changes')
     print('  -P                  Force using polling to detect remote changes')
-    print('  -b ADDRESS:PORT     Specify the beacon address [default: %s:%d]' % options.beacon_address)
+    print('  -b ADDRESS:PORT     Specify the beacon TCP address [default: %s:%d]' % options.beacon_address)
     print('  -B                  Enable the beacon server in sync-forever')
     print('  -t INTERVAL         Set the minimum interval for beacon reconnection [default: %s sec]' % \
           options.reconnect_interval)
+    print('  -y ADDRESS:PORT     Specify the internal control UDP address [default: %s:%d]' % options.control_address)
     print('  -c COMMAND          Run a user command after sync')
     print('  -q                  Be less verbose')
     print()
@@ -699,6 +710,10 @@ def main():
             args = args[1:]
         elif args[0] == '-t':
             options.reconnect_interval = float(args[1])
+            args = args[2:]
+        elif args[0] == '-y':
+            address, port = args[1].split(':', 1)
+            options.control_address = (address, int(port))
             args = args[2:]
         elif args[0] == '-c':
             options.command_after_sync = args[1]
