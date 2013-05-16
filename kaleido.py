@@ -531,7 +531,7 @@ class Kaleido:
         remote_change_monitor.start()
 
         try:
-            prev_last_change = None
+            prev_last_change = self.gu.get_last_commit_time()
             last_diff = 0
 
             while True:
@@ -596,23 +596,24 @@ class Kaleido:
                     # send beacon signal
                     remote_change_monitor.after_sync()
 
+                now = time.time()
                 if changed or not sync_forever:
                     # detect and print the last change time
                     last_change = self.gu.get_last_commit_time()
-                    now = time.time()
                     if prev_last_change != last_change:
                         # new change
                         diff_msg = TimeUtil.get_timediff_str(now - last_change)
                         diff_msg = diff_msg + ' ago' if diff_msg else 'now'
                         print('last change at %s (%s)' % (email.utils.formatdate(last_change, True), diff_msg))
                         prev_last_change = last_change
-                    else:
-                        # no change
-                        for timespan in self._no_change_notifications:
-                            if last_diff < timespan and now - last_change >= timespan:
-                                print('no changes in ' + TimeUtil.get_timediff_str(timespan))
-                                break
-                    last_diff = now - last_change
+
+                if not changed:
+                    # no change
+                    for timespan in self._no_change_notifications:
+                        if last_diff < timespan and now - prev_last_change >= timespan:
+                            print('no changes in ' + TimeUtil.get_timediff_str(timespan))
+                            break
+                    last_diff = now - prev_last_change
 
                 if changed:
                     if self.options.command_after_sync != None:
