@@ -630,7 +630,7 @@ class Kaleido:
             last_diff = 0
 
             while True:
-                event.wait()
+                event.wait(self._no_change_notifications[-1])
                 event.clear()
 
                 local_op = local_change_monitor.may_have_changes()
@@ -733,6 +733,8 @@ class Kaleido:
                             last_diff = now - prev_last_change
                             print(self.options.msg_prefix() + 'no changes in ' + TimeUtil.get_timediff_str(last_diff))
                             break
+                else:
+                    last_diff = now - prev_last_change
 
                 if changed:
                     if self.options.command_after_sync != None:
