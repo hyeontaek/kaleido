@@ -202,6 +202,7 @@ class LocalChangeMonitor:
                 self.p = subprocess.Popen(['inotifywait', '--monitor', '--recursive', '--quiet',
                                            '-e', 'modify', '-e', 'attrib', '-e', 'close_write',
                                            '-e', 'move', '-e', 'create', '-e', 'delete',
+                                           '--format', '%w%f',
                                            self.options.working_copy_root],
                                           stdin=subprocess.PIPE, stdout=subprocess.PIPE)
                 self.p.stdin.close()
@@ -241,18 +242,14 @@ class LocalChangeMonitor:
     def _inotifywait_handler(self):
         meta_path = self.options.meta_path()
         while not self.exiting:
-            s = self.p.stdout.readline(4096).strip().decode(sys.getdefaultencoding())
-            if not s: break
+            path = self.p.stdout.readline(4096).strip().decode(sys.getdefaultencoding())
+            if not path: break
             try:
-                # XXX: this does not work with the directory containing space
-                # TODO: use inotify directly?
-                directory, event, filename = s.split(' ', 3)
-                path = os.path.join(directory, filename)
                 if path.startswith(meta_path):
                     continue
                 if os.path.dirname(path).endswith('.git') and os.path.basename(path) == 'index.lock':
                     continue
-                #sys.stdout.write(s)
+                #print(path)
                 self.flag = True
                 self.event.set()
             except ValueError:
@@ -397,14 +394,15 @@ class RemoteChangeMonitor:
 
             socks_to_read = [self.s_control_server] + [p.socket for p in self.peers] + ([self.s_server] if self.beacon_listen else [])
             socks_to_write = []
+            socks_to_check_error = [p.socket for p in self.peers]
             for idx, p in enumerate(self.peers):
                 if p.buf: socks_to_write.append(p.socket)
-            socks_to_close = []
+            peers_to_close = []
 
             if socks_to_read or socks_to_write:
-                rlist, wlist, _ = select.select(socks_to_read, socks_to_write, [], self.options.beacon_keepalive)
+                rlist, wlist, elist = select.select(socks_to_read, socks_to_write, socks_to_check_error, self.options.beacon_keepalive)
             else:
-                rlist, wlist = [], []
+                rlist, wlist, elist = [], [], []
 
             now = time.time()
             for s in rlist:
@@ -450,7 +448,7 @@ class RemoteChangeMonitor:
                     else:
                         if msg:
                             print('unexpected response from %s:%d' % p.addr)
-                        socks_to_close.append(p)
+                        peers_to_close.append(p)
 
             for s in wlist:
                 idx = self._find_peer_idx(s)
@@ -461,6 +459,12 @@ class RemoteChangeMonitor:
                     p.buf = p.buf[wrote_len:]
                 except socket.error:
                     pass
+
+            for s in elist:
+                idx = self._find_peer_idx(s)
+                assert idx != -1
+                p = self.peers[idx]
+                peers_to_close.append(p)
 
             if self.need_to_send_signal:
                 # broadcast
@@ -473,13 +477,13 @@ class RemoteChangeMonitor:
             for p in self.peers:
                 if now - p.last_recv > self.options.beacon_timeout:
                     print('connection to %s:%d timeout' % p.addr)
-                    socks_to_close.append(p)
+                    peers_to_close.append(p)
                 elif now - p.last_send > self.options.beacon_keepalive:
                     if not p.buf:
                         p.buf = b'k'
                     p.last_send = now
 
-            for p in socks_to_close:
+            for p in peers_to_close:
                 if p in self.peers:
                     print('connection to %s:%d closed' % p.addr)
                     self.peers.remove(p)
