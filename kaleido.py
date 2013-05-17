@@ -417,7 +417,8 @@ class RemoteChangeMonitor:
                         msg = None
                     if msg == b'k':
                         # keepalive
-                        print('keepalive from %s:%d' % p.addr)
+                        #print('keepalive from %s:%d' % p.addr)
+                        pass
                     elif msg == b'c':
                         # changes
                         self.flag = True
