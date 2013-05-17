@@ -123,17 +123,27 @@ class GitUtil:
         return ['--git-dir=' + self.options.meta_path(), '--work-tree=' + self.options.working_copy_root]
 
     def list_git_branches(self):
-        for line in self.call(['branch', '--no-color'])[1].splitlines():
+        ret = self.call(['branch', '--no-color'], False)
+        if ret[0] != 0:
+            return
+            yield
+        for line in ret[1].splitlines():
             yield line[2:].strip()
 
     def get_last_commit_id(self):
-        for line in self.call(['log', '-1'])[1].splitlines():
+        ret = self.call(['log', '-1'], False)
+        if ret[0] != 0:
+            return None
+        for line in ret[1].splitlines():
             if line.startswith('commit '):
                 return line[7:].strip()
         return None
 
     def get_last_commit_time(self):
-        for line in self.call(['log', '-1'])[1].splitlines():
+        ret = self.call(['log', '-1'], False)
+        if ret[0] != 0:
+            return 0.
+        for line in ret[1].splitlines():
             if line.startswith('Date: '):
                 last_change_str = line[6:].strip()
                 return time.mktime(email.utils.parsedate(last_change_str))
@@ -601,11 +611,18 @@ class Kaleido:
                             self.gu.call(['branch', '--delete', branch], False)
                         elif branch == 'sync_inbox_origin':
                             # the origin has been squashed; apply it locally
-                            self.gu.call(['branch', 'new_master', branch])
+                            succeeding = True
+                            if succeeding:
+                                succeeding = self.gu.call(['branch', 'new_master', branch], False)[0] == 0
                             # this may fail without --force if some un-added file is now included in the tree
-                            self.gu.call(['checkout', '--force', 'new_master'])
-                            self.gu.call(['branch', '-M', 'new_master', 'master'])
-                            self.gu.call(['gc', '--aggressive'], False)
+                            if succeeding:
+                                succeeding = self.gu.call(['checkout', '--force', 'new_master'], False)[0] == 0
+                            if succeeding:
+                                succeeding = self.gu.call(['branch', '-M', 'new_master', 'master'], False)[0] == 0
+                            if succeeding:
+                                self.gu.call(['gc', '--aggressive'], False)
+                            if not succeeding:
+                                print('failed to propagate squash')
                         else:
                             # ignore squash from non-origin sources
                             self.gu.call(['branch', '-D', branch], False)
@@ -617,7 +634,7 @@ class Kaleido:
                 if changed:
                     # push local master to remote sync_inbox_ID for remote merge
                     if has_origin:
-                        self.gu.call(['push', '--force', 'origin', 'master:sync_inbox_%s' % inbox_id])
+                        self.gu.call(['push', '--force', 'origin', 'master:sync_inbox_%s' % inbox_id], False)
 
                     # send beacon signal
                     remote_change_monitor.after_sync()
