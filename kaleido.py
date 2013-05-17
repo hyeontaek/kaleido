@@ -58,9 +58,14 @@ class Options:
 
     def msg_prefix(self):
         if self.working_copy_root != None:
-            return self.working_copy_root + ': '
+            s = self.working_copy_root + ': '
         else:
-            return self.working_copy + ': '
+            s = self.working_copy + ': '
+        if len(s) < 20:
+            s = '%-20s' % s
+        else:
+            s = s[:7] + '...' + s[-10:]
+        return s
 
 
 class GitUtil:
