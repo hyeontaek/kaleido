@@ -158,13 +158,13 @@ class TimeUtil:
 
 
 class LocalChangeMonitor:
-    def __init__(self, options, cv):
+    def __init__(self, options, event):
         self.options = options
         self.use_polling = self.options.local_polling
         self.running = False
         self.exiting = False
         self.flag = False
-        self.cv = cv
+        self.event = event
 
     def __del__(self):
         if self.running:
@@ -181,7 +181,7 @@ class LocalChangeMonitor:
         assert not self.running
         self.exiting = False
         self.flag = True    # assume changes initially
-        with self.cv: self.cv.notify()
+        self.event.set()
         if not self.use_polling:
             if platform.platform().startswith('Linux'):
                 print('monitoring local changes in %s' % self.options.working_copy_root)
@@ -240,7 +240,7 @@ class LocalChangeMonitor:
                     continue
                 #sys.stdout.write(s)
                 self.flag = True
-                with self.cv: self.cv.notify()
+                self.event.set()
             except ValueError:
                 pass
         self.p.stdout.close()
@@ -264,12 +264,12 @@ class LocalChangeMonitor:
                     continue
                 #print(path)
                 self.flag = True
-                with self.cv: self.cv.notify()
+                self.event.set()
                 break
 
 
 class RemoteChangeMonitor:
-    def __init__(self, options, cv):
+    def __init__(self, options, event):
         self.options = options
         self.use_polling = self.options.remote_polling
         self.beacon_listen = self.options.beacon_listen
@@ -278,7 +278,7 @@ class RemoteChangeMonitor:
         self.running = False
         self.exiting = False
         self.flag = False
-        self.cv = cv
+        self.event = event
         self.need_to_send_signal = False
 
     def __del__(self):
@@ -301,7 +301,7 @@ class RemoteChangeMonitor:
         assert not self.running
         self.exiting = False
         self.flag = True    # assume changes initially
-        with self.cv: self.cv.notify()
+        self.event.set()
         self.need_to_send_signal = False
         if self.beacon_address == None:
             self.use_polling = True
@@ -362,7 +362,7 @@ class RemoteChangeMonitor:
                     pass
                 self.sb_peers.append([s, b'', self.beacon_address])
                 self.flag = True    # assume changes because we may have missed signals
-                with self.cv: self.cv.notify()
+                self.event.set()
 
             if self.need_to_send_signal:
                 # broadcast
@@ -412,7 +412,7 @@ class RemoteChangeMonitor:
                             break
                     else:
                         self.flag = True
-                        with self.cv: self.cv.notify()
+                        self.event.set()
                         if self.beacon_listen:
                             # broadcast except the source
                             print('notifying %d peers for remote changes' % (len(self.sb_peers) - 1))
@@ -469,8 +469,8 @@ class Kaleido:
         return True
 
     def beacon(self):
-        cv = threading.Condition()
-        remote_change_monitor = RemoteChangeMonitor(self.options, cv)
+        event = threading.Event()
+        remote_change_monitor = RemoteChangeMonitor(self.options, event)
         remote_change_monitor.start()
         try:
             while True:
@@ -502,8 +502,8 @@ class Kaleido:
         self.gu.call(['branch', '-M', 'new_master', 'master'])
         self.gu.call(['gc', '--aggressive'], False)
 
-        cv = threading.Condition()
-        remote_change_monitor = RemoteChangeMonitor(self.options, cv)
+        event = threading.Event()
+        remote_change_monitor = RemoteChangeMonitor(self.options, event)
         remote_change_monitor.start()
         try:
             remote_change_monitor.after_sync()
@@ -539,10 +539,10 @@ class Kaleido:
             # disable beacon server
             self.options.beacon_listen = False
 
-        cv = threading.Condition()
-        local_change_monitor = LocalChangeMonitor(self.options, cv)
+        event = threading.Event()
+        local_change_monitor = LocalChangeMonitor(self.options, event)
         local_change_monitor.start()
-        remote_change_monitor = RemoteChangeMonitor(self.options, cv)
+        remote_change_monitor = RemoteChangeMonitor(self.options, event)
         remote_change_monitor.start()
 
         try:
@@ -550,13 +550,11 @@ class Kaleido:
             last_diff = 0
 
             while True:
-                with cv:
-                    while True:
-                        local_op = local_change_monitor.may_have_changes()
-                        remote_op = remote_change_monitor.may_have_changes()
-                        if local_op or remote_op:
-                            break
-                        cv.wait()
+                event.wait()
+                event.clear()
+
+                local_op = local_change_monitor.may_have_changes()
+                remote_op = remote_change_monitor.may_have_changes()
 
                 changed = False
 
