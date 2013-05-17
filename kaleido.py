@@ -350,12 +350,12 @@ class RemoteChangeMonitor:
         self.running = False
 
     class _Peer:
-        def __init__(self, socket, addr, buf, last_recv, last_keepalive_sent):
-            self.socket = None
+        def __init__(self, socket, addr, buf, last_recv, last_send):
+            self.socket = socket
             self.addr = addr
-            self.buf = b''
-            self.last_recv = 0.
-            self.last_send = 0.
+            self.buf = buf
+            self.last_recv = last_recv
+            self.last_send = last_send
 
     def _find_peer_idx(self, s):
         for idx, p in enumerate(self.peers):
