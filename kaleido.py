@@ -44,6 +44,8 @@ class Options:
         self.remote_polling = False
         self.beacon_listen = False
         self.beacon_address = ('127.0.0.1', 50000)
+        self.beacon_keepalive = 20.
+        self.beacon_timeout = 60.
         self.reconnect_interval = 60.
         self.control_address = ('127.0.0.1', 0)
         self.update_only = False
@@ -318,7 +320,7 @@ class RemoteChangeMonitor:
         if self.beacon_address == None:
             self.use_polling = True
         if not self.use_polling:
-            self.sb_peers = []
+            self.peers = []
             if self.beacon_listen:
                 self.s_server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 self.s_server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -341,64 +343,60 @@ class RemoteChangeMonitor:
             self.t.join()
             if self.beacon_listen:
                 self.s_server.close()
-            for c in self.sb_peers:
-                c[0].close()
+            for p in self.peers:
+                p.socket.close()
             self.s_control_client.close()
             self.s_control_server.close()
         self.running = False
 
+    class _Peer:
+        def __init__(self, socket, addr, buf, last_recv, last_keepalive_sent):
+            self.socket = None
+            self.addr = addr
+            self.buf = b''
+            self.last_recv = 0.
+            self.last_send = 0.
+
+    def _find_peer_idx(self, s):
+        for idx, p in enumerate(self.peers):
+            if p.socket == s:
+                return idx
+        return -1
+
     def _handler(self):
-        last_connect = 0
+        last_connect_attempt = 0
         while True:
             if self.exiting:
                 can_exit = True
                 if self.need_to_send_signal:
                     can_exit = False
                 else:
-                    for c in self.sb_peers:
-                        if c[1]:
+                    for p in self.peers:
+                        if p.buf:
                             can_exit = False
+                            break
                 if can_exit:
                     break
-            if not self.beacon_listen and not self.sb_peers and \
-               time.time() - last_connect >= self.options.reconnect_interval:
-                last_connect = time.time()
-                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                s.setblocking(0)
-                s.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
-                s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-                try:
-                    print('connecting to beacon server %s:%d' % self.beacon_address)
-                    s.connect(self.beacon_address)
-                except socket.error:
-                    pass
-                self.sb_peers.append([s, b'', self.beacon_address])
-                self.flag = True    # assume changes because we may have missed signals
-                self.event.set()
 
-            if self.need_to_send_signal:
-                # broadcast
-                print('notifying %d peers for local changes' % len(self.sb_peers))
-                for c in self.sb_peers:
-                    c[1] = b's'
-                self.need_to_send_signal = False
-
-            socks_to_read = [self.s_control_server] + [c[0] for c in self.sb_peers] + ([self.s_server] if self.beacon_listen else [])
+            socks_to_read = [self.s_control_server] + [p.socket for p in self.peers] + ([self.s_server] if self.beacon_listen else [])
             socks_to_write = []
-            for idx, c in enumerate(self.sb_peers):
-                if c[1]: socks_to_write.append(c[0])
+            for idx, p in enumerate(self.peers):
+                if p.buf: socks_to_write.append(p.socket)
+            socks_to_close = []
 
             if socks_to_read or socks_to_write:
                 rlist, wlist, _ = select.select(socks_to_read, socks_to_write, [])
             else:
                 rlist, wlist = [], []
 
+            now = time.time()
             for s in rlist:
                 if s == self.s_control_server:
-                    msg = s.recvfrom(4096)  # no-op; the purpose is to just escape select()
-                    continue
+                    # no-op; the purpose of the control message is just to escape select()
+                    msg = s.recvfrom(1)  
                 elif self.beacon_listen and s == self.s_server:
                     s_new_client, addr = self.s_server.accept()
+                    now = time.time()
                     print('new peer from %s:%d' % addr)
                     try:
                         s_new_client.setblocking(0)
@@ -406,40 +404,84 @@ class RemoteChangeMonitor:
                         s_new_client.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
                     except socket.error:
                         pass
-                    self.sb_peers.append([s_new_client, b'', addr])
+                    self.peers.append(self._Peer(s_new_client, addr, b'', now, now))
                 else:
+                    idx = self._find_peer_idx(s)
+                    assert idx != -1
+                    p = self.peers[idx]
                     try:
-                        msg = s.recv(4096)
+                        msg = s.recv(1)
+                        if msg:
+                            p.last_recv = now
                     except socket.error:
-                        msg = ('unknown', 0)
-                    if not msg or msg != b's':
-                        for idx, c in enumerate(self.sb_peers):
-                            if c[0] != s:
-                                continue
-                            if msg:
-                                print('unexpected response from %s:%d' % c[2])
-                            print('connection to %s:%d closed' % c[2])
-                            del self.sb_peers[idx]
-                            s.close()
-                            break
-                    else:
+                        msg = None
+                    if msg == b'k':
+                        # keepalive
+                        pass
+                    elif msg == b'c':
+                        # changes
                         self.flag = True
                         self.event.set()
                         if self.beacon_listen:
                             # broadcast except the source
-                            print('notifying %d peers for remote changes' % (len(self.sb_peers) - 1))
-                            for c in self.sb_peers:
-                                if c[0] != s:
-                                    c[1] = b's'
+                            print('notifying %d peers for remote changes' % (len(self.peers) - 1))
+                            for p2 in self.peers:
+                                if p != p2:
+                                    p2.buf = b'c'
+                                    p2.last_send = now
+                    else:
+                        if msg:
+                            print('unexpected response from %s:%d' % p.addr)
+                        socks_to_close.append(p)
+
             for s in wlist:
-                for idx, c in enumerate(self.sb_peers):
-                    if c[0] == s:
-                        try:
-                            wrote_len = c[0].send(c[1])
-                        except socket.error:
-                            wrote_len = 0
-                        if wrote_len:
-                            c[1] = b''
+                idx = self._find_peer_idx(s)
+                assert idx != -1
+                p = self.peers[idx]
+                try:
+                    wrote_len = p.socket.send(p.buf)
+                    p.buf = p.buf[wrote_len:]
+                except socket.error:
+                    pass
+
+            if not self.beacon_listen and not self.peers and \
+               now - last_connect_attempt >= self.options.reconnect_interval:
+                last_connect_attempt = now
+                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                s.setblocking(0)
+                s.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+                s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+                print('connecting to beacon server %s:%d' % self.beacon_address)
+                try:
+                    s.connect(self.beacon_address)
+                except socket.error:
+                    pass
+                self.peers.append(self._Peer(s, self.beacon_address, b'', now, now))
+                self.flag = True    # assume changes because we may have missed signals
+                self.event.set()
+
+            if self.need_to_send_signal:
+                # broadcast
+                print('notifying %d peers for local changes' % len(self.peers))
+                for p in self.peers:
+                    p.buf = b'c'
+                    p.last_send = now
+                self.need_to_send_signal = False
+
+            for p in self.peers:
+                if now - p.last_recv > self.options.beacon_timeout:
+                    print('connection to %s:%d timeout' % p.addr)
+                    socks_to_close.append(p)
+                elif now - p.last_send > self.options.beacon_keepalive:
+                    if not p.buf:
+                        p.buf = b'k'
+                    p.last_send = now
+
+            for p in socks_to_close:
+                if p in self.peers:
+                    print('connection to %s:%d closed' % p.addr)
+                    self.peers.remove(p)
+                    p.socket.close()
 
 
 class Kaleido:
@@ -701,7 +743,9 @@ def print_help():
     print('  -P                  Force using polling to detect remote changes')
     print('  -b ADDRESS:PORT     Specify the beacon TCP address [default: %s:%d]' % options.beacon_address)
     print('  -B                  Enable the beacon server in sync-forever')
-    print('  -t INTERVAL         Set the minimum interval for beacon reconnection [default: %s sec]' % \
+    print('  -t TIMEOUT          Set the beacon connection timeout [default: %s sec]' % options.beacon_timeout)
+    print('  -k INTERVAL         Set the beacon connection keepalive interval [default: %s sec]' % options.beacon_keepalive)
+    print('  -T INTERVAL         Set the minimum interval for beacon reconnection [default: %s sec]' % \
           options.reconnect_interval)
     print('  -y ADDRESS:PORT     Specify the internal control UDP address [default: %s:%d]' % options.control_address)
     print('  -u                  Do not add new files automatically in sync-forever')
@@ -757,6 +801,12 @@ def main():
             options.beacon_listen = True
             args = args[1:]
         elif args[0] == '-t':
+            options.beacon_timeout = float(args[1])
+            args = args[2:]
+        elif args[0] == '-k':
+            options.beacon_keepalive = float(args[1])
+            args = args[2:]
+        elif args[0] == '-T':
             options.reconnect_interval = float(args[1])
             args = args[2:]
         elif args[0] == '-y':
