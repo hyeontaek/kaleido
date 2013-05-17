@@ -1,0 +1,28 @@
+#!/bin/bash
+
+GIT_PATH=/usr/bin/git
+
+D="`pwd`"
+
+if [ ! -z "$GIT_DIR" ] || [ ! -z "$GIT_WORK_TREE" ]; then
+	"$GIT_PATH" "$@"
+	exit $?
+fi
+
+while true; do
+	if [ -d "$D/.git" ]; then
+		GIT_DIR="$D/.git/" GIT_WORK_TREE="$D" "$GIT_PATH" "$@"
+		exit $?
+	fi
+	if [ -d "$D/.gitk" ]; then
+		GIT_DIR="$D/.gitk/" GIT_WORK_TREE="$D" "$GIT_PATH" "$@"
+		exit $?
+	fi
+	if [ -z "${D%/*}" ]; then
+		echo cannot find .git or .gitk
+		exit 1
+	fi
+	D="${D%/*}"
+done
+
+
