@@ -49,6 +49,7 @@ class Options:
         self.reconnect_interval = 60.
         self.control_address = ('127.0.0.1', 0)
         self.update_only = False
+        self.allow_destructive = False
         self.command_after_sync = None
         self.quiet = False
 
@@ -556,6 +557,9 @@ class Kaleido:
         return True
 
     def squash(self):
+        if not self.options.allow_destructive:
+            raise Exception('destructive operations are not allowed')
+
         self.gu.detect_working_copy_root()
         self.gu.set_common_args(self.gu.get_path_args())
         has_origin = self.gu.call(['config', '--get', 'remote.origin.url'], False)[0] == 0
@@ -659,25 +663,29 @@ class Kaleido:
                             continue
                         has_common_ancestor = self.gu.call(['merge-base', 'master', branch], False)[0] == 0
                         if has_common_ancestor:
-                            # merge local master with the origin
+                            # typical merge---merge local master with the origin
                             self.gu.call(['merge', '--strategy=recursive'] + git_strategy_option + [branch], False)
                             self.gu.call(['branch', '--delete', branch], False)
                         elif branch == 'sync_inbox_origin':
                             # the origin has been squashed; apply it locally
-                            succeeding = True
-                            if succeeding:
-                                succeeding = self.gu.call(['branch', 'new_master', branch], False)[0] == 0
-                            # this may fail without --force if some un-added file is now included in the tree
-                            if succeeding:
-                                succeeding = self.gu.call(['checkout', '--force', 'new_master'], False)[0] == 0
-                            if succeeding:
-                                succeeding = self.gu.call(['branch', '-M', 'new_master', 'master'], False)[0] == 0
-                            if succeeding:
-                                self.gu.call(['gc', '--aggressive'], False)
-                            if not succeeding:
-                                print(self.options.msg_prefix() + 'failed to propagate squash')
+                            if not self.options.allow_destructive:
+                                print(self.options.msg_prefix() + 'ignored squash with destructive operations disallowed')
+                            else:
+                                succeeding = True
+                                if succeeding:
+                                    succeeding = self.gu.call(['branch', 'new_master', branch], False)[0] == 0
+                                if succeeding:
+                                    # this may fail without --force if some un-added file is now included in the tree
+                                    succeeding = self.gu.call(['checkout', '--force', 'new_master'], False)[0] == 0
+                                if succeeding:
+                                    succeeding = self.gu.call(['branch', '-M', 'new_master', 'master'], False)[0] == 0
+                                if succeeding:
+                                    self.gu.call(['gc', '--aggressive'], False)
+                                if not succeeding:
+                                    print(self.options.msg_prefix() + 'failed to propagate squash')
                         else:
                             # ignore squash from non-origin sources
+                            # branch -D is destructive, but this is quite safe when performed only on a local copy of others' branch
                             self.gu.call(['branch', '-D', branch], False)
 
                     if last_commit_id != self.gu.get_last_commit_id():
@@ -760,6 +768,7 @@ def print_help():
           options.reconnect_interval)
     print('  -y ADDRESS:PORT     Specify the internal control UDP address [default: %s:%d]' % options.control_address)
     print('  -u                  Do not add new files automatically in sync-forever')
+    print('  -D                  Allow destructive operations')
     print('  -c COMMAND          Run a user command after sync')
     print('  -q                  Be less verbose')
     print()
@@ -826,6 +835,9 @@ def main():
             args = args[2:]
         elif args[0] == '-u':
             options.update_only = True
+            args = args[1:]
+        elif args[0] == '-D':
+            options.allow_destructive = True
             args = args[1:]
         elif args[0] == '-c':
             options.command_after_sync = args[1]
