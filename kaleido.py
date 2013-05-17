@@ -55,6 +55,12 @@ class Options:
     def meta_path(self):
         return os.path.join(self.working_copy_root, self.meta)
 
+    def msg_prefix(self):
+        if self.working_copy_root != None:
+            return self.working_copy_root + ': '
+        else:
+            return self.working_copy + ': '
+
 
 class GitUtil:
     def __init__(self, options):
@@ -64,18 +70,17 @@ class GitUtil:
     def set_common_args(self, common_args):
         self.common_args = common_args[:]
 
-    @staticmethod
-    def _copy_output(src, dest, tee=None):
+    def _copy_output(self, src, dest, tee=None):
         while True:
             s = src.readline(4096).decode(sys.getdefaultencoding())
             if not s: break
             if dest: dest.write(s)
-            if tee: tee.write('  ' + s)
+            if tee: tee.write(self.options.msg_prefix() + '  ' + s)
         src.close()
 
     def call(self, args, must_succeed=True):
         #if not self.options.quiet:
-        #    print('  $ ' + ' '.join([self.options.git] + self.common_args + args))
+        #    print(self.options.msg_prefix() + '  $ ' + ' '.join([self.options.git] + self.common_args + args))
         p = subprocess.Popen([self.options.git] + self.common_args + args,
                              stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         p.stdin.close()
@@ -83,10 +88,10 @@ class GitUtil:
         threads = []
         stdout_buf = io.StringIO()
         stderr_buf = None
-        tee_stdout = None
+        tee_stdout = None if self.options.quiet else sys.stdout
         tee_stderr = None if self.options.quiet else sys.stderr
-        threads.append(threading.Thread(target=GitUtil._copy_output, args=(p.stdout, stdout_buf, tee_stdout)))
-        threads.append(threading.Thread(target=GitUtil._copy_output, args=(p.stderr, stderr_buf, tee_stderr)))
+        threads.append(threading.Thread(target=self._copy_output, args=(p.stdout, stdout_buf, tee_stdout)))
+        threads.append(threading.Thread(target=self._copy_output, args=(p.stderr, stderr_buf, tee_stderr)))
         list([t.start() for t in threads])
         ret = p.wait()
         list([t.join() for t in threads])
@@ -98,7 +103,7 @@ class GitUtil:
 
     def execute(self, args, must_succeed=True):
         #if not self.options.quiet:
-        #    print('  $ ' + ' '.join([self.options.git] + self.common_args + args))
+        #    print(self.options.msg_prefix() + '  $ ' + ' '.join([self.options.git] + self.common_args + args))
         ret = subprocess.call([self.options.git] + self.common_args + args)
 
         if must_succeed and ret != 0:
@@ -198,7 +203,7 @@ class LocalChangeMonitor:
         self.event.set()
         if not self.use_polling:
             if platform.platform().startswith('Linux'):
-                print('monitoring local changes in %s' % self.options.working_copy_root)
+                print(self.options.msg_prefix() + 'monitoring local changes in %s' % self.options.working_copy_root)
                 self.p = subprocess.Popen(['inotifywait', '--monitor', '--recursive', '--quiet',
                                            '-e', 'modify', '-e', 'attrib', '-e', 'close_write',
                                            '-e', 'move', '-e', 'create', '-e', 'delete',
@@ -209,7 +214,7 @@ class LocalChangeMonitor:
                 self.t = threading.Thread(target=self._inotifywait_handler, args=())
                 self.t.start()
             elif platform.platform().startswith('Windows'):
-                print('monitoring local changes in %s' % self.options.working_copy_root)
+                print(self.options.msg_prefix() + 'monitoring local changes in %s' % self.options.working_copy_root)
                 FILE_LIST_DIRECTORY = 1
                 self.h = win32file.CreateFile(self.options.working_copy_root, FILE_LIST_DIRECTORY,
                                               win32con.FILE_SHARE_READ | win32con.FILE_SHARE_WRITE |
@@ -220,7 +225,7 @@ class LocalChangeMonitor:
             else:
                 self.use_polling = True
         if self.use_polling:
-            print('monitoring local changes in %s (polling)' % self.options.working_copy_root)
+            print(self.options.msg_prefix() + 'monitoring local changes in %s (polling)' % self.options.working_copy_root)
         # TODO: support Kevent for BSD
         self.running = True
 
@@ -249,7 +254,7 @@ class LocalChangeMonitor:
                     continue
                 if os.path.dirname(path).endswith('.git') and os.path.basename(path) == 'index.lock':
                     continue
-                #print(path)
+                #print(self.options.msg_prefix() + path)
                 self.flag = True
                 self.event.set()
             except ValueError:
@@ -273,7 +278,7 @@ class LocalChangeMonitor:
                     continue
                 if os.path.dirname(path).endswith('.git') and os.path.basename(path) == 'index.lock':
                     continue
-                #print(path)
+                #print(self.options.msg_prefix() + path)
                 self.flag = True
                 self.event.set()
                 break
@@ -323,7 +328,7 @@ class RemoteChangeMonitor:
                 self.s_server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
                 self.s_server.bind(self.beacon_address)
                 self.s_server.listen(5)
-                print('beacon server listening at %s:%d' % self.beacon_address)
+                print(self.options.msg_prefix() + 'beacon server listening at %s:%d' % self.beacon_address)
             self.s_control_server = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             self.s_control_server.bind(self.control_address)
             self.control_address = self.s_control_server.getsockname()
@@ -383,7 +388,7 @@ class RemoteChangeMonitor:
                 s.setblocking(0)
                 s.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
                 s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-                print('connecting to beacon server %s:%d' % self.beacon_address)
+                print(self.options.msg_prefix() + 'connecting to beacon server %s:%d' % self.beacon_address)
                 try:
                     s.connect(self.beacon_address)
                 except socket.error:
@@ -412,7 +417,7 @@ class RemoteChangeMonitor:
                 elif self.beacon_listen and s == self.s_server:
                     s_new_client, addr = self.s_server.accept()
                     now = time.time()
-                    print('new peer from %s:%d' % addr)
+                    print(self.options.msg_prefix() + 'new peer from %s:%d' % addr)
                     try:
                         s_new_client.setblocking(0)
                         s_new_client.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
@@ -432,7 +437,7 @@ class RemoteChangeMonitor:
                         msg = None
                     if msg == b'k':
                         # keepalive
-                        #print('keepalive from %s:%d' % p.addr)
+                        #print(self.options.msg_prefix() + 'keepalive from %s:%d' % p.addr)
                         pass
                     elif msg == b'c':
                         # changes
@@ -440,14 +445,14 @@ class RemoteChangeMonitor:
                         self.event.set()
                         if self.beacon_listen:
                             # broadcast except the source
-                            print('notifying %d peers for remote changes' % (len(self.peers) - 1))
+                            print(self.options.msg_prefix() + 'notifying %d peers for remote changes' % (len(self.peers) - 1))
                             for p2 in self.peers:
                                 if p != p2:
                                     p2.buf = b'c'
                                     p2.last_send = now
                     else:
                         if msg:
-                            print('unexpected response from %s:%d' % p.addr)
+                            print(self.options.msg_prefix() + 'unexpected response from %s:%d' % p.addr)
                         peers_to_close.append(p)
 
             for s in wlist:
@@ -468,7 +473,7 @@ class RemoteChangeMonitor:
 
             if self.need_to_send_signal:
                 # broadcast
-                print('notifying %d peers for local changes' % len(self.peers))
+                print(self.options.msg_prefix() + 'notifying %d peers for local changes' % len(self.peers))
                 for p in self.peers:
                     p.buf = b'c'
                     p.last_send = now
@@ -476,7 +481,7 @@ class RemoteChangeMonitor:
 
             for p in self.peers:
                 if now - p.last_recv > self.options.beacon_timeout:
-                    print('connection to %s:%d timeout' % p.addr)
+                    print(self.options.msg_prefix() + 'connection to %s:%d timeout' % p.addr)
                     peers_to_close.append(p)
                 elif now - p.last_send > self.options.beacon_keepalive:
                     if not p.buf:
@@ -485,7 +490,7 @@ class RemoteChangeMonitor:
 
             for p in peers_to_close:
                 if p in self.peers:
-                    print('connection to %s:%d closed' % p.addr)
+                    print(self.options.msg_prefix() + 'connection to %s:%d closed' % p.addr)
                     self.peers.remove(p)
                     p.socket.close()
 
@@ -670,7 +675,7 @@ class Kaleido:
                             if succeeding:
                                 self.gu.call(['gc', '--aggressive'], False)
                             if not succeeding:
-                                print('failed to propagate squash')
+                                print(self.options.msg_prefix() + 'failed to propagate squash')
                         else:
                             # ignore squash from non-origin sources
                             self.gu.call(['branch', '-D', branch], False)
@@ -698,7 +703,7 @@ class Kaleido:
                     # new change
                     diff_msg = TimeUtil.get_timediff_str(now - last_change)
                     diff_msg = diff_msg + ' ago' if diff_msg else 'now'
-                    print('last change at %s (%s)' % (email.utils.formatdate(last_change, True), diff_msg))
+                    print(self.options.msg_prefix() + 'last change at %s (%s)' % (email.utils.formatdate(last_change, True), diff_msg))
                     prev_last_change = last_change
 
                 if not changed:
@@ -706,7 +711,7 @@ class Kaleido:
                     for timespan in self._no_change_notifications:
                         if last_diff < timespan and now - prev_last_change >= timespan:
                             last_diff = now - prev_last_change
-                            print('no changes in ' + TimeUtil.get_timediff_str(last_diff))
+                            print(self.options.msg_prefix() + 'no changes in ' + TimeUtil.get_timediff_str(last_diff))
                             break
 
                 if changed:
@@ -852,6 +857,7 @@ def main():
         ret = True if Kaleido(options).serve(address, int(port)) else False
     elif command == 'beacon':
         options.beacon_listen = True
+        options.working_copy = 'beacon'
         ret = True if Kaleido(options).beacon() else False
     elif command == 'squash':
         ret = True if Kaleido(options).squash() else False
