@@ -38,6 +38,7 @@ class Options:
         self.git = 'git'
         self.meta = '.kaleido'
         self.working_copy = '.'
+        self.working_copy_root = None
         self.sync_interval = 0.1
         self.local_polling = False
         self.remote_polling = False
@@ -45,6 +46,7 @@ class Options:
         self.beacon_address = ('127.0.0.1', 50000)
         self.reconnect_interval = 60.
         self.control_address = ('127.0.0.1', 0)
+        self.add_all = False
         self.command_after_sync = None
         self.quiet = False
 
@@ -564,7 +566,10 @@ class Kaleido:
                     last_commit_id = self.gu.get_last_commit_id()
 
                     # try to add local changes
-                    self.gu.call(['add', '--update'], False)
+                    if not self.options.add_all:
+                        self.gu.call(['add', '--update'], False)
+                    else:
+                        self.gu.call(['add', '--all'], False)
 
                     # commit local changes to local master
                     self.gu.call(['commit',
@@ -680,6 +685,7 @@ def print_help():
     print('  -t INTERVAL         Set the minimum interval for beacon reconnection [default: %s sec]' % \
           options.reconnect_interval)
     print('  -y ADDRESS:PORT     Specify the internal control UDP address [default: %s:%d]' % options.control_address)
+    print('  -A                  Add new files automatically in sync-forever')
     print('  -c COMMAND          Run a user command after sync')
     print('  -q                  Be less verbose')
     print()
@@ -738,6 +744,9 @@ def main():
             address, port = args[1].split(':', 1)
             options.control_address = (address, int(port))
             args = args[2:]
+        elif args[0] == '-A':
+            options.add_all = True
+            args = args[1:]
         elif args[0] == '-c':
             options.command_after_sync = args[1]
             args = args[2:]
