@@ -4,6 +4,11 @@ GIT_PATH=/usr/bin/git
 
 D="`pwd`"
 
+if [ ! -z "$GIT_DIR" ] || [ ! -z "$GIT_WORK_TREE" ]; then
+	"$GIT_PATH" "$@"
+	exit $?
+fi
+
 while true; do
 	if [ -d "$D/.git" ]; then
 		GIT_DIR="$D/.git/" GIT_WORK_TREE="$D" "$GIT_PATH" "$@"
