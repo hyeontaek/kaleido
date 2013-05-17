@@ -202,6 +202,7 @@ class LocalChangeMonitor:
                 self.p = subprocess.Popen(['inotifywait', '--monitor', '--recursive', '--quiet',
                                            '-e', 'modify', '-e', 'attrib', '-e', 'close_write',
                                            '-e', 'move', '-e', 'create', '-e', 'delete',
+                                           '--format', '%w%f',
                                            self.options.working_copy_root],
                                           stdin=subprocess.PIPE, stdout=subprocess.PIPE)
                 self.p.stdin.close()
@@ -241,18 +242,14 @@ class LocalChangeMonitor:
     def _inotifywait_handler(self):
         meta_path = self.options.meta_path()
         while not self.exiting:
-            s = self.p.stdout.readline(4096).strip().decode(sys.getdefaultencoding())
-            if not s: break
+            path = self.p.stdout.readline(4096).strip().decode(sys.getdefaultencoding())
+            if not path: break
             try:
-                # XXX: this does not work with the directory containing space
-                # TODO: use inotify directly?
-                directory, event, filename = s.split(' ', 3)
-                path = os.path.join(directory, filename)
                 if path.startswith(meta_path):
                     continue
                 if os.path.dirname(path).endswith('.git') and os.path.basename(path) == 'index.lock':
                     continue
-                #sys.stdout.write(s)
+                #print(path)
                 self.flag = True
                 self.event.set()
             except ValueError:
