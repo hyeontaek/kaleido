@@ -385,7 +385,7 @@ class RemoteChangeMonitor:
             socks_to_close = []
 
             if socks_to_read or socks_to_write:
-                rlist, wlist, _ = select.select(socks_to_read, socks_to_write, [])
+                rlist, wlist, _ = select.select(socks_to_read, socks_to_write, [], self.options.beacon_keepalive)
             else:
                 rlist, wlist = [], []
 
@@ -417,7 +417,7 @@ class RemoteChangeMonitor:
                         msg = None
                     if msg == b'k':
                         # keepalive
-                        pass
+                        print('keepalive from %s:%d' % p.addr)
                     elif msg == b'c':
                         # changes
                         self.flag = True
