@@ -378,6 +378,23 @@ class RemoteChangeMonitor:
                 if can_exit:
                     break
 
+            now = time.time()
+            if not self.beacon_listen and not self.peers and \
+               now - last_connect_attempt >= self.options.reconnect_interval:
+                last_connect_attempt = now
+                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                s.setblocking(0)
+                s.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+                s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+                print('connecting to beacon server %s:%d' % self.beacon_address)
+                try:
+                    s.connect(self.beacon_address)
+                except socket.error:
+                    pass
+                self.peers.append(self._Peer(s, self.beacon_address, b'', now, now))
+                self.flag = True    # assume changes because we may have missed signals
+                self.event.set()
+
             socks_to_read = [self.s_control_server] + [p.socket for p in self.peers] + ([self.s_server] if self.beacon_listen else [])
             socks_to_write = []
             for idx, p in enumerate(self.peers):
@@ -444,22 +461,6 @@ class RemoteChangeMonitor:
                     p.buf = p.buf[wrote_len:]
                 except socket.error:
                     pass
-
-            if not self.beacon_listen and not self.peers and \
-               now - last_connect_attempt >= self.options.reconnect_interval:
-                last_connect_attempt = now
-                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                s.setblocking(0)
-                s.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
-                s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-                print('connecting to beacon server %s:%d' % self.beacon_address)
-                try:
-                    s.connect(self.beacon_address)
-                except socket.error:
-                    pass
-                self.peers.append(self._Peer(s, self.beacon_address, b'', now, now))
-                self.flag = True    # assume changes because we may have missed signals
-                self.event.set()
 
             if self.need_to_send_signal:
                 # broadcast
