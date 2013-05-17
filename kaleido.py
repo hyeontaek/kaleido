@@ -378,6 +378,7 @@ class RemoteChangeMonitor:
                 if can_exit:
                     break
 
+            now = time.time()
             if not self.beacon_listen and not self.peers and \
                now - last_connect_attempt >= self.options.reconnect_interval:
                 last_connect_attempt = now
