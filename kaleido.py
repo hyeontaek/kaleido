@@ -226,7 +226,8 @@ class LocalChangeMonitor:
             else:
                 self.use_polling = True
         if self.use_polling:
-            print(self.options.msg_prefix() + 'monitoring local changes in %s (polling)' % self.options.working_copy_root)
+            print(self.options.msg_prefix() + \
+                  'monitoring local changes in %s (polling)' % self.options.working_copy_root)
         # TODO: support Kevent for BSD
         self.running = True
 
@@ -398,7 +399,8 @@ class RemoteChangeMonitor:
                 self.flag = True    # assume changes because we may have missed signals
                 self.event.set()
 
-            socks_to_read = [self.s_control_server] + [p.socket for p in self.peers] + ([self.s_server] if self.beacon_listen else [])
+            socks_to_read = [self.s_control_server] + [p.socket for p in self.peers]
+            if self.beacon_listen: socks_to_read += [self.s_server]
             socks_to_write = []
             socks_to_check_error = [p.socket for p in self.peers]
             for idx, p in enumerate(self.peers):
@@ -406,7 +408,8 @@ class RemoteChangeMonitor:
             peers_to_close = []
 
             if socks_to_read or socks_to_write:
-                rlist, wlist, elist = select.select(socks_to_read, socks_to_write, socks_to_check_error, self.options.beacon_keepalive)
+                rlist, wlist, elist = select.select(socks_to_read, socks_to_write, socks_to_check_error,
+                                                    self.options.beacon_keepalive)
             else:
                 rlist, wlist, elist = [], [], []
 
@@ -446,7 +449,8 @@ class RemoteChangeMonitor:
                         self.event.set()
                         if self.beacon_listen:
                             # broadcast except the source
-                            print(self.options.msg_prefix() + 'notifying %d peers for remote changes' % (len(self.peers) - 1))
+                            print(self.options.msg_prefix() + \
+                                  'notifying %d peers for remote changes' % (len(self.peers) - 1))
                             for p2 in self.peers:
                                 if p != p2:
                                     p2.buf = b'c'
@@ -669,7 +673,8 @@ class Kaleido:
                         elif branch == 'sync_inbox_origin':
                             # the origin has been squashed; apply it locally
                             if not self.options.allow_destructive:
-                                print(self.options.msg_prefix() + 'ignored squash with destructive operations disallowed')
+                                print(self.options.msg_prefix() + \
+                                      'ignored squash with destructive operations disallowed')
                             else:
                                 succeeding = True
                                 if succeeding:
@@ -685,7 +690,8 @@ class Kaleido:
                                     print(self.options.msg_prefix() + 'failed to propagate squash')
                         else:
                             # ignore squash from non-origin sources
-                            # branch -D is destructive, but this is quite safe when performed only on a local copy of others' branch
+                            # branch -D is destructive,
+                            # but this is quite safe when performed only on a local copy of others' branch
                             self.gu.call(['branch', '-D', branch], False)
 
                     if last_commit_id != self.gu.get_last_commit_id():
@@ -711,7 +717,8 @@ class Kaleido:
                     # new change
                     diff_msg = TimeUtil.get_timediff_str(now - last_change)
                     diff_msg = diff_msg + ' ago' if diff_msg else 'now'
-                    print(self.options.msg_prefix() + 'last change at %s (%s)' % (email.utils.formatdate(last_change, True), diff_msg))
+                    print(self.options.msg_prefix() + \
+                          'last change at %s (%s)' % (email.utils.formatdate(last_change, True), diff_msg))
                     prev_last_change = last_change
 
                 if not changed:
@@ -763,7 +770,8 @@ def print_help():
     print('  -b ADDRESS:PORT     Specify the beacon TCP address [default: %s:%d]' % options.beacon_address)
     print('  -B                  Enable the beacon server in sync-forever')
     print('  -t TIMEOUT          Set the beacon connection timeout [default: %s sec]' % options.beacon_timeout)
-    print('  -k INTERVAL         Set the beacon connection keepalive interval [default: %s sec]' % options.beacon_keepalive)
+    print('  -k INTERVAL         Set the beacon connection keepalive interval [default: %s sec]' % \
+          options.beacon_keepalive)
     print('  -T INTERVAL         Set the minimum interval for beacon reconnection [default: %s sec]' % \
           options.reconnect_interval)
     print('  -y ADDRESS:PORT     Specify the internal control UDP address [default: %s:%d]' % options.control_address)
