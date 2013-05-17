@@ -158,12 +158,13 @@ class TimeUtil:
 
 
 class LocalChangeMonitor:
-    def __init__(self, options):
+    def __init__(self, options, cv):
         self.options = options
         self.use_polling = self.options.local_polling
         self.running = False
         self.exiting = False
         self.flag = False
+        self.cv = cv
 
     def __del__(self):
         if self.running:
@@ -180,6 +181,7 @@ class LocalChangeMonitor:
         assert not self.running
         self.exiting = False
         self.flag = True    # assume changes initially
+        with self.cv: self.cv.notify()
         if not self.use_polling:
             if platform.platform().startswith('Linux'):
                 print('monitoring local changes in %s' % self.options.working_copy_root)
@@ -225,16 +227,20 @@ class LocalChangeMonitor:
     def _inotifywait_handler(self):
         meta_path = self.options.meta_path()
         while not self.exiting:
-            s = self.p.stdout.readline(4096).decode(sys.getdefaultencoding())
+            s = self.p.stdout.readline(4096).strip().decode(sys.getdefaultencoding())
             if not s: break
             try:
                 # XXX: this does not work with the directory containing space
                 # TODO: use inotify directly?
                 directory, event, filename = s.split(' ', 3)
-                if directory.startswith(meta_path):
+                path = os.path.join(directory, filename)
+                if path.startswith(meta_path):
+                    continue
+                if os.path.dirname(path).endswith('.git') and os.path.basename(path) == 'index.lock':
                     continue
                 #sys.stdout.write(s)
                 self.flag = True
+                with self.cv: self.cv.notify()
             except ValueError:
                 pass
         self.p.stdout.close()
@@ -254,13 +260,16 @@ class LocalChangeMonitor:
                 path = os.path.join(self.options.working_copy_root, name)
                 if path.startswith(meta_path):
                     continue
+                if os.path.dirname(path).endswith('.git') and os.path.basename(path) == 'index.lock':
+                    continue
                 #print(path)
                 self.flag = True
+                with self.cv: self.cv.notify()
                 break
 
 
 class RemoteChangeMonitor:
-    def __init__(self, options):
+    def __init__(self, options, cv):
         self.options = options
         self.use_polling = self.options.remote_polling
         self.beacon_listen = self.options.beacon_listen
@@ -269,6 +278,7 @@ class RemoteChangeMonitor:
         self.running = False
         self.exiting = False
         self.flag = False
+        self.cv = cv
         self.need_to_send_signal = False
 
     def __del__(self):
@@ -291,6 +301,7 @@ class RemoteChangeMonitor:
         assert not self.running
         self.exiting = False
         self.flag = True    # assume changes initially
+        with self.cv: self.cv.notify()
         self.need_to_send_signal = False
         if self.beacon_address == None:
             self.use_polling = True
@@ -349,8 +360,9 @@ class RemoteChangeMonitor:
                     s.connect(self.beacon_address)
                 except socket.error:
                     pass
-                self.sb_peers.append([s, b''])
+                self.sb_peers.append([s, b'', self.beacon_address])
                 self.flag = True    # assume changes because we may have missed signals
+                with self.cv: self.cv.notify()
 
             if self.need_to_send_signal:
                 # broadcast
@@ -376,31 +388,31 @@ class RemoteChangeMonitor:
                 elif self.beacon_listen and s == self.s_server:
                     s_new_client, addr = self.s_server.accept()
                     print('new peer from %s:%d' % addr)
-                    s_new_client.setblocking(0)
-                    s_new_client.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
-                    s_new_client.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-                    self.sb_peers.append([s_new_client, b''])
+                    try:
+                        s_new_client.setblocking(0)
+                        s_new_client.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+                        s_new_client.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+                    except socket.error:
+                        pass
+                    self.sb_peers.append([s_new_client, b'', addr])
                 else:
                     try:
                         msg = s.recv(4096)
                     except socket.error:
-                        msg = None
+                        msg = ('unknown', 0)
                     if not msg or msg != b's':
-                        if msg:
-                            print('unexpected response from %s:%d' % s.getpeername())
                         for idx, c in enumerate(self.sb_peers):
                             if c[0] != s:
                                 continue
-                            if not self.beacon_listen:
-                                print('connection to beacon server closed')
-                                # avoid tight-loop connection to the server
-                                time.sleep(1)
+                            if msg:
+                                print('unexpected response from %s:%d' % c[2])
+                            print('connection to %s:%d closed' % c[2])
                             del self.sb_peers[idx]
-                            print('connection to %s:%d closed' % s.getpeername())
                             s.close()
                             break
                     else:
                         self.flag = True
+                        with self.cv: self.cv.notify()
                         if self.beacon_listen:
                             # broadcast except the source
                             print('notifying %d peers for remote changes' % (len(self.sb_peers) - 1))
@@ -457,7 +469,8 @@ class Kaleido:
         return True
 
     def beacon(self):
-        remote_change_monitor = RemoteChangeMonitor(self.options)
+        cv = threading.Condition()
+        remote_change_monitor = RemoteChangeMonitor(self.options, cv)
         remote_change_monitor.start()
         try:
             while True:
@@ -489,7 +502,8 @@ class Kaleido:
         self.gu.call(['branch', '-M', 'new_master', 'master'])
         self.gu.call(['gc', '--aggressive'], False)
 
-        remote_change_monitor = RemoteChangeMonitor(self.options)
+        cv = threading.Condition()
+        remote_change_monitor = RemoteChangeMonitor(self.options, cv)
         remote_change_monitor.start()
         try:
             remote_change_monitor.after_sync()
@@ -525,9 +539,10 @@ class Kaleido:
             # disable beacon server
             self.options.beacon_listen = False
 
-        local_change_monitor = LocalChangeMonitor(self.options)
+        cv = threading.Condition()
+        local_change_monitor = LocalChangeMonitor(self.options, cv)
         local_change_monitor.start()
-        remote_change_monitor = RemoteChangeMonitor(self.options)
+        remote_change_monitor = RemoteChangeMonitor(self.options, cv)
         remote_change_monitor.start()
 
         try:
@@ -535,8 +550,14 @@ class Kaleido:
             last_diff = 0
 
             while True:
-                local_op = local_change_monitor.may_have_changes()
-                remote_op = remote_change_monitor.may_have_changes()
+                with cv:
+                    while True:
+                        local_op = local_change_monitor.may_have_changes()
+                        remote_op = remote_change_monitor.may_have_changes()
+                        if local_op or remote_op:
+                            break
+                        cv.wait()
+
                 changed = False
 
                 if local_op:
@@ -596,16 +617,19 @@ class Kaleido:
                     # send beacon signal
                     remote_change_monitor.after_sync()
 
-                now = time.time()
-                if changed or not sync_forever:
-                    # detect and print the last change time
                     last_change = self.gu.get_last_commit_time()
-                    if prev_last_change != last_change:
-                        # new change
-                        diff_msg = TimeUtil.get_timediff_str(now - last_change)
-                        diff_msg = diff_msg + ' ago' if diff_msg else 'now'
-                        print('last change at %s (%s)' % (email.utils.formatdate(last_change, True), diff_msg))
-                        prev_last_change = last_change
+                else:
+                    last_change = prev_last_change
+                    pass
+
+                now = time.time()
+                # detect and print the last change time
+                if prev_last_change != last_change or not sync_forever:
+                    # new change
+                    diff_msg = TimeUtil.get_timediff_str(now - last_change)
+                    diff_msg = diff_msg + ' ago' if diff_msg else 'now'
+                    print('last change at %s (%s)' % (email.utils.formatdate(last_change, True), diff_msg))
+                    prev_last_change = last_change
 
                 if not changed:
                     # no change
