@@ -60,7 +60,7 @@ class Options:
         if self.working_copy_root != None:
             s = self.working_copy_root + ': '
         else:
-            s = self.working_copy + ': '
+            s = os.path.abspath(self.working_copy) + ': '
         if len(s) < 20:
             s = '%-20s' % s
         else:
@@ -517,7 +517,7 @@ class Kaleido:
         self.gu.detect_working_copy_root()
         self.gu.set_common_args(self.gu.get_path_args())
         self.gu.call(['config', 'core.bare', 'false'])
-        self.gu.call(['config', 'hideDotFiles', 'false'])
+        self.gu.call(['config', 'core.hideDotFiles', 'false'])
         self.gu.call(['commit', '--author=%s <%s@%s>' % (getpass.getuser(), getpass.getuser(), platform.node()),
                       '--message=', '--allow-empty-message', '--allow-empty'])
         meta_path = self.options.meta_path()
@@ -536,7 +536,7 @@ class Kaleido:
         self.gu.detect_working_copy_root()
         self.gu.set_common_args(self.gu.get_path_args())
         self.gu.call(['config', 'core.bare', 'false'])
-        self.gu.call(['config', 'hideDotFiles', 'false'])
+        self.gu.call(['config', 'core.hideDotFiles', 'false'])
         self.gu.call(['config', 'remote.origin.url', url])
         meta_path = self.options.meta_path()
         open(os.path.join(meta_path, 'info', 'exclude'), 'at').write(self.options.meta + '\n')
