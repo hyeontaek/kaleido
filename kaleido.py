@@ -760,7 +760,15 @@ class Kaleido:
         native_git_path = os.path.join(path, '.git')
         fixed_git_path = os.path.join(path, '.kaleido-git')
         if not os.path.exists(native_git_path):
-            raise Exception('.git does not exist')
+            if not os.path.exists(fixed_git_path):
+                raise Exception('.git does not exist')
+            else:
+                # we just need to relink
+                if platform.platform().startswith('Linux'):
+                    os.symlink('.kaleido-git', native_git_path)
+                elif platform.platform().startswith('Windows'):
+                    subprocess.call(['cmd', '/c', 'mklink', '/j', native_git_path, fixed_git_path])
+            return True
         if os.path.exists(fixed_git_path):
             raise Exception('.kaleido-git already exists')
 
@@ -788,8 +796,6 @@ class Kaleido:
         if platform.platform().startswith('Linux'):
             os.symlink('.kaleido-git', native_git_path)
         elif platform.platform().startswith('Windows'):
-            # XXX: if the directory is moved, the junction made here will point to a stale location,
-            #      which will require the unfix-git and fix-git cycle
             subprocess.call(['cmd', '/c', 'mklink', '/j', native_git_path, fixed_git_path])
 
         return True
