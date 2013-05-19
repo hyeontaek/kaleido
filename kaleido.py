@@ -778,8 +778,10 @@ class Kaleido:
 
         # add a symlink from .git to .kaleido-git to make git continue to work
         if platform.platform().startswith('Linux'):
-            os.symlink(fixed_git_path, native_git_path)
+            os.symlink('.kaleido-git', native_git_path)
         elif platform.platform().startswith('Windows'):
+            # XXX: if the directory is moved, the junction made here will point to a stale location,
+            #      which will require the unfix-git and fix-git cycle
             subprocess.call(['cmd', '/c', 'mklink', '/j', native_git_path, fixed_git_path])
 
         return True
