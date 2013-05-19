@@ -775,6 +775,9 @@ class Kaleido:
 
         # remove the previous "commit" entry that may exist (sync is required to commit changes)
         self.gu.call(['rm', '--cached', '-r', '--ignore-unmatch', path], False)
+        self.gu.call(['commit',
+                      '--author=%s <%s@%s>' % (getpass.getuser(), getpass.getuser(), platform.node()),
+                      '--message=', '--allow-empty-message'], False)
 
         # add a symlink from .git to .kaleido-git to make git continue to work
         if platform.platform().startswith('Linux'):
@@ -802,6 +805,9 @@ class Kaleido:
 
         # remove previous entries in kaleido repository (sync is required to commit changes)
         self.gu.call(['rm', '--cached', '-r', '--ignore-unmatch', path], False)
+        self.gu.call(['commit',
+                      '--author=%s <%s@%s>' % (getpass.getuser(), getpass.getuser(), platform.node()),
+                      '--message=', '--allow-empty-message'], False)
 
         # remove the symlink and restore the original .git directory name
         if platform.platform().startswith('Linux'):
