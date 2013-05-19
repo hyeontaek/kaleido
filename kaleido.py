@@ -779,6 +779,11 @@ class Kaleido:
                       '--author=%s <%s@%s>' % (getpass.getuser(), getpass.getuser(), platform.node()),
                       '--message=', '--allow-empty-message'], False)
 
+        self.gu.call(['add', path], False)
+        self.gu.call(['commit',
+                      '--author=%s <%s@%s>' % (getpass.getuser(), getpass.getuser(), platform.node()),
+                      '--message=', '--allow-empty-message'], False)
+
         # add a symlink from .git to .kaleido-git to make git continue to work
         if platform.platform().startswith('Linux'):
             os.symlink('.kaleido-git', native_git_path)
