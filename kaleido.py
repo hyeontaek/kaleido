@@ -770,10 +770,11 @@ class Kaleido:
         # rename .git to ours so that git does not think this path as a submodule
         os.rename(native_git_path, fixed_git_path)
         # add a new entry to exclude list
-        open(os.path.join(fixed_git_path, 'info', 'exclude'), 'at').write('.kaleido-git' + '\n')
+        if '.kaleido-git' + '\n' not in open(os.path.join(fixed_git_path, 'info', 'exclude'), 'rt').readlines():
+            open(os.path.join(fixed_git_path, 'info', 'exclude'), 'at').write('.kaleido-git' + '\n')
 
         # remove the previous "commit" entry that may exist (sync is required to commit changes)
-        self.gu.call(['rm', '--cached', '-r', path], False)
+        self.gu.call(['rm', '--cached', '-r', '--ignore-unmatch', path], False)
 
         # add a symlink from .git to .kaleido-git to make git continue to work
         if platform.platform().startswith('Linux'):
@@ -798,7 +799,7 @@ class Kaleido:
         self.gu.set_common_args(self.gu.get_path_args())
 
         # remove previous entries in kaleido repository (sync is required to commit changes)
-        self.gu.call(['rm', '--cached', '-r', path], False)
+        self.gu.call(['rm', '--cached', '-r', '--ignore-unmatch', path], False)
 
         # remove the symlink and restore the original .git directory name
         if platform.platform().startswith('Linux'):
