@@ -781,8 +781,9 @@ class Kaleido:
         if '.kaleido-git' + '\n' not in open(os.path.join(fixed_git_path, 'info', 'exclude'), 'rt').readlines():
             open(os.path.join(fixed_git_path, 'info', 'exclude'), 'at').write('.kaleido-git' + '\n')
 
-        # remove the previous "commit" entry that may exist (sync is required to commit changes)
+        # remove the previous 'commit' entry that may exist (sync is required to commit changes)
         self.gu.call(['rm', '--cached', '-r', '--ignore-unmatch', path], False)
+        # TODO: there must be no 'git add' between these two commands
         self.gu.call(['commit',
                       '--author=%s <%s@%s>' % (getpass.getuser(), getpass.getuser(), platform.node()),
                       '--message=', '--allow-empty-message'], False)
