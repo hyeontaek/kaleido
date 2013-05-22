@@ -5,12 +5,12 @@
 # modify it under the terms of the GNU General Public License
 # as published by the Free Software Foundation; either version 2
 # of the License, or (at your option) any later version.
-# 
+#
 # This program is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
-# 
+#
 # You should have received a copy of the GNU General Public License
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
@@ -49,11 +49,23 @@ class Options:
         self.reconnect_interval = 60.
         self.control_address = ('127.0.0.1', 0)
         self.update_only = False
+        self.allow_destructive = False
         self.command_after_sync = None
         self.quiet = False
 
     def meta_path(self):
         return os.path.join(self.working_copy_root, self.meta)
+
+    def msg_prefix(self):
+        if self.working_copy_root != None:
+            s = self.working_copy_root + ': '
+        else:
+            s = os.path.abspath(self.working_copy) + ': '
+        if len(s) < 20:
+            s = '%-20s' % s
+        else:
+            s = s[:7] + '...' + s[-10:]
+        return s
 
 
 class GitUtil:
@@ -64,18 +76,17 @@ class GitUtil:
     def set_common_args(self, common_args):
         self.common_args = common_args[:]
 
-    @staticmethod
-    def _copy_output(src, dest, tee=None):
+    def _copy_output(self, src, dest, tee=None):
         while True:
             s = src.readline(4096).decode(sys.getdefaultencoding())
             if not s: break
             if dest: dest.write(s)
-            if tee: tee.write('  ' + s)
+            if tee: tee.write(self.options.msg_prefix() + '  ' + s)
         src.close()
 
     def call(self, args, must_succeed=True):
         #if not self.options.quiet:
-        #    print('  $ ' + ' '.join([self.options.git] + self.common_args + args))
+        #    print(self.options.msg_prefix() + '  $ ' + ' '.join([self.options.git] + self.common_args + args))
         p = subprocess.Popen([self.options.git] + self.common_args + args,
                              stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         p.stdin.close()
@@ -83,22 +94,22 @@ class GitUtil:
         threads = []
         stdout_buf = io.StringIO()
         stderr_buf = None
-        tee_stdout = None
+        tee_stdout = None if self.options.quiet else sys.stdout
         tee_stderr = None if self.options.quiet else sys.stderr
-        threads.append(threading.Thread(target=GitUtil._copy_output, args=(p.stdout, stdout_buf, tee_stdout)))
-        threads.append(threading.Thread(target=GitUtil._copy_output, args=(p.stderr, stderr_buf, tee_stderr)))
+        threads.append(threading.Thread(target=self._copy_output, args=(p.stdout, stdout_buf, tee_stdout)))
+        threads.append(threading.Thread(target=self._copy_output, args=(p.stderr, stderr_buf, tee_stderr)))
         list([t.start() for t in threads])
         ret = p.wait()
         list([t.join() for t in threads])
 
         if must_succeed and ret != 0:
             raise RuntimeError('git returned %d' % ret)
-        
+
         return (ret, stdout_buf.getvalue())
 
     def execute(self, args, must_succeed=True):
         #if not self.options.quiet:
-        #    print('  $ ' + ' '.join([self.options.git] + self.common_args + args))
+        #    print(self.options.msg_prefix() + '  $ ' + ' '.join([self.options.git] + self.common_args + args))
         ret = subprocess.call([self.options.git] + self.common_args + args)
 
         if must_succeed and ret != 0:
@@ -198,7 +209,7 @@ class LocalChangeMonitor:
         self.event.set()
         if not self.use_polling:
             if platform.platform().startswith('Linux'):
-                print('monitoring local changes in %s' % self.options.working_copy_root)
+                print(self.options.msg_prefix() + 'monitoring local changes in %s' % self.options.working_copy_root)
                 self.p = subprocess.Popen(['inotifywait', '--monitor', '--recursive', '--quiet',
                                            '-e', 'modify', '-e', 'attrib', '-e', 'close_write',
                                            '-e', 'move', '-e', 'create', '-e', 'delete',
@@ -209,7 +220,7 @@ class LocalChangeMonitor:
                 self.t = threading.Thread(target=self._inotifywait_handler, args=())
                 self.t.start()
             elif platform.platform().startswith('Windows'):
-                print('monitoring local changes in %s' % self.options.working_copy_root)
+                print(self.options.msg_prefix() + 'monitoring local changes in %s' % self.options.working_copy_root)
                 FILE_LIST_DIRECTORY = 1
                 self.h = win32file.CreateFile(self.options.working_copy_root, FILE_LIST_DIRECTORY,
                                               win32con.FILE_SHARE_READ | win32con.FILE_SHARE_WRITE |
@@ -220,7 +231,8 @@ class LocalChangeMonitor:
             else:
                 self.use_polling = True
         if self.use_polling:
-            print('monitoring local changes in %s (polling)' % self.options.working_copy_root)
+            print(self.options.msg_prefix() + \
+                  'monitoring local changes in %s (polling)' % self.options.working_copy_root)
         # TODO: support Kevent for BSD
         self.running = True
 
@@ -249,7 +261,7 @@ class LocalChangeMonitor:
                     continue
                 if os.path.dirname(path).endswith('.git') and os.path.basename(path) == 'index.lock':
                     continue
-                #print(path)
+                #print(self.options.msg_prefix() + path)
                 self.flag = True
                 self.event.set()
             except ValueError:
@@ -273,7 +285,7 @@ class LocalChangeMonitor:
                     continue
                 if os.path.dirname(path).endswith('.git') and os.path.basename(path) == 'index.lock':
                     continue
-                #print(path)
+                #print(self.options.msg_prefix() + path)
                 self.flag = True
                 self.event.set()
                 break
@@ -323,7 +335,7 @@ class RemoteChangeMonitor:
                 self.s_server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
                 self.s_server.bind(self.beacon_address)
                 self.s_server.listen(5)
-                print('beacon server listening at %s:%d' % self.beacon_address)
+                print(self.options.msg_prefix() + 'beacon server listening at %s:%d' % self.beacon_address)
             self.s_control_server = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             self.s_control_server.bind(self.control_address)
             self.control_address = self.s_control_server.getsockname()
@@ -383,7 +395,7 @@ class RemoteChangeMonitor:
                 s.setblocking(0)
                 s.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
                 s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-                print('connecting to beacon server %s:%d' % self.beacon_address)
+                print(self.options.msg_prefix() + 'connecting to beacon server %s:%d' % self.beacon_address)
                 try:
                     s.connect(self.beacon_address)
                 except socket.error:
@@ -392,7 +404,8 @@ class RemoteChangeMonitor:
                 self.flag = True    # assume changes because we may have missed signals
                 self.event.set()
 
-            socks_to_read = [self.s_control_server] + [p.socket for p in self.peers] + ([self.s_server] if self.beacon_listen else [])
+            socks_to_read = [self.s_control_server] + [p.socket for p in self.peers]
+            if self.beacon_listen: socks_to_read += [self.s_server]
             socks_to_write = []
             socks_to_check_error = [p.socket for p in self.peers]
             for idx, p in enumerate(self.peers):
@@ -400,7 +413,8 @@ class RemoteChangeMonitor:
             peers_to_close = []
 
             if socks_to_read or socks_to_write:
-                rlist, wlist, elist = select.select(socks_to_read, socks_to_write, socks_to_check_error, self.options.beacon_keepalive)
+                rlist, wlist, elist = select.select(socks_to_read, socks_to_write, socks_to_check_error,
+                                                    self.options.beacon_keepalive)
             else:
                 rlist, wlist, elist = [], [], []
 
@@ -408,11 +422,11 @@ class RemoteChangeMonitor:
             for s in rlist:
                 if s == self.s_control_server:
                     # no-op; the purpose of the control message is just to escape select()
-                    msg = s.recvfrom(1)  
+                    msg = s.recvfrom(1)
                 elif self.beacon_listen and s == self.s_server:
                     s_new_client, addr = self.s_server.accept()
                     now = time.time()
-                    print('new peer from %s:%d' % addr)
+                    print(self.options.msg_prefix() + 'new peer from %s:%d' % addr)
                     try:
                         s_new_client.setblocking(0)
                         s_new_client.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
@@ -432,7 +446,7 @@ class RemoteChangeMonitor:
                         msg = None
                     if msg == b'k':
                         # keepalive
-                        #print('keepalive from %s:%d' % p.addr)
+                        #print(self.options.msg_prefix() + 'keepalive from %s:%d' % p.addr)
                         pass
                     elif msg == b'c':
                         # changes
@@ -440,14 +454,15 @@ class RemoteChangeMonitor:
                         self.event.set()
                         if self.beacon_listen:
                             # broadcast except the source
-                            print('notifying %d peers for remote changes' % (len(self.peers) - 1))
+                            print(self.options.msg_prefix() + \
+                                  'notifying %d peers for remote changes' % (len(self.peers) - 1))
                             for p2 in self.peers:
                                 if p != p2:
                                     p2.buf = b'c'
                                     p2.last_send = now
                     else:
                         if msg:
-                            print('unexpected response from %s:%d' % p.addr)
+                            print(self.options.msg_prefix() + 'unexpected response from %s:%d' % p.addr)
                         peers_to_close.append(p)
 
             for s in wlist:
@@ -468,7 +483,7 @@ class RemoteChangeMonitor:
 
             if self.need_to_send_signal:
                 # broadcast
-                print('notifying %d peers for local changes' % len(self.peers))
+                print(self.options.msg_prefix() + 'notifying %d peers for local changes' % len(self.peers))
                 for p in self.peers:
                     p.buf = b'c'
                     p.last_send = now
@@ -476,7 +491,7 @@ class RemoteChangeMonitor:
 
             for p in self.peers:
                 if now - p.last_recv > self.options.beacon_timeout:
-                    print('connection to %s:%d timeout' % p.addr)
+                    print(self.options.msg_prefix() + 'connection to %s:%d timeout' % p.addr)
                     peers_to_close.append(p)
                 elif now - p.last_send > self.options.beacon_keepalive:
                     if not p.buf:
@@ -485,7 +500,7 @@ class RemoteChangeMonitor:
 
             for p in peers_to_close:
                 if p in self.peers:
-                    print('connection to %s:%d closed' % p.addr)
+                    print(self.options.msg_prefix() + 'connection to %s:%d closed' % p.addr)
                     self.peers.remove(p)
                     p.socket.close()
 
@@ -551,6 +566,9 @@ class Kaleido:
         return True
 
     def squash(self):
+        if not self.options.allow_destructive:
+            raise Exception('destructive operations are not allowed')
+
         self.gu.detect_working_copy_root()
         self.gu.set_common_args(self.gu.get_path_args())
         has_origin = self.gu.call(['config', '--get', 'remote.origin.url'], False)[0] == 0
@@ -612,7 +630,7 @@ class Kaleido:
             last_diff = 0
 
             while True:
-                event.wait()
+                event.wait(self._no_change_notifications[-1])
                 event.clear()
 
                 local_op = local_change_monitor.may_have_changes()
@@ -654,25 +672,31 @@ class Kaleido:
                             continue
                         has_common_ancestor = self.gu.call(['merge-base', 'master', branch], False)[0] == 0
                         if has_common_ancestor:
-                            # merge local master with the origin
+                            # typical merge---merge local master with the origin
                             self.gu.call(['merge', '--strategy=recursive'] + git_strategy_option + [branch], False)
                             self.gu.call(['branch', '--delete', branch], False)
                         elif branch == 'sync_inbox_origin':
                             # the origin has been squashed; apply it locally
-                            succeeding = True
-                            if succeeding:
-                                succeeding = self.gu.call(['branch', 'new_master', branch], False)[0] == 0
-                            # this may fail without --force if some un-added file is now included in the tree
-                            if succeeding:
-                                succeeding = self.gu.call(['checkout', '--force', 'new_master'], False)[0] == 0
-                            if succeeding:
-                                succeeding = self.gu.call(['branch', '-M', 'new_master', 'master'], False)[0] == 0
-                            if succeeding:
-                                self.gu.call(['gc', '--aggressive'], False)
-                            if not succeeding:
-                                print('failed to propagate squash')
+                            if not self.options.allow_destructive:
+                                print(self.options.msg_prefix() + \
+                                      'ignored squash with destructive operations disallowed')
+                            else:
+                                succeeding = True
+                                if succeeding:
+                                    succeeding = self.gu.call(['branch', 'new_master', branch], False)[0] == 0
+                                if succeeding:
+                                    # this may fail without --force if some un-added file is now included in the tree
+                                    succeeding = self.gu.call(['checkout', '--force', 'new_master'], False)[0] == 0
+                                if succeeding:
+                                    succeeding = self.gu.call(['branch', '-M', 'new_master', 'master'], False)[0] == 0
+                                if succeeding:
+                                    self.gu.call(['gc', '--aggressive'], False)
+                                if not succeeding:
+                                    print(self.options.msg_prefix() + 'failed to propagate squash')
                         else:
                             # ignore squash from non-origin sources
+                            # branch -D is destructive,
+                            # but this is quite safe when performed only on a local copy of others' branch
                             self.gu.call(['branch', '-D', branch], False)
 
                     if last_commit_id != self.gu.get_last_commit_id():
@@ -698,7 +722,8 @@ class Kaleido:
                     # new change
                     diff_msg = TimeUtil.get_timediff_str(now - last_change)
                     diff_msg = diff_msg + ' ago' if diff_msg else 'now'
-                    print('last change at %s (%s)' % (email.utils.formatdate(last_change, True), diff_msg))
+                    print(self.options.msg_prefix() + \
+                          'last change at %s (%s)' % (email.utils.formatdate(last_change, True), diff_msg))
                     prev_last_change = last_change
 
                 if not changed:
@@ -706,8 +731,10 @@ class Kaleido:
                     for timespan in self._no_change_notifications:
                         if last_diff < timespan and now - prev_last_change >= timespan:
                             last_diff = now - prev_last_change
-                            print('no changes in ' + TimeUtil.get_timediff_str(last_diff))
+                            print(self.options.msg_prefix() + 'no changes in ' + TimeUtil.get_timediff_str(last_diff))
                             break
+                else:
+                    last_diff = now - prev_last_change
 
                 if changed:
                     if self.options.command_after_sync != None:
@@ -726,6 +753,84 @@ class Kaleido:
 
         return True
 
+    def fix_git(self, path):
+        if not platform.platform().startswith('Linux') and not platform.platform().startswith('Windows'):
+            raise Exception('not supported platform')
+
+        native_git_path = os.path.join(path, '.git')
+        fixed_git_path = os.path.join(path, '.kaleido-git')
+        if not os.path.exists(native_git_path):
+            if not os.path.exists(fixed_git_path):
+                raise Exception('.git does not exist')
+            else:
+                # we just need to relink
+                if platform.platform().startswith('Linux'):
+                    os.symlink('.kaleido-git', native_git_path)
+                elif platform.platform().startswith('Windows'):
+                    subprocess.call(['cmd', '/c', 'mklink', '/j', native_git_path, fixed_git_path])
+            return True
+        if os.path.exists(fixed_git_path):
+            raise Exception('.kaleido-git already exists')
+
+        self.gu.detect_working_copy_root()
+        self.gu.set_common_args(self.gu.get_path_args())
+
+        # rename .git to ours so that git does not think this path as a submodule
+        os.rename(native_git_path, fixed_git_path)
+        # add a new entry to exclude list
+        if '.kaleido-git' + '\n' not in open(os.path.join(fixed_git_path, 'info', 'exclude'), 'rt').readlines():
+            open(os.path.join(fixed_git_path, 'info', 'exclude'), 'at').write('.kaleido-git' + '\n')
+
+        # remove the previous 'commit' entry that may exist (sync is required to commit changes)
+        self.gu.call(['rm', '--cached', '-r', '--ignore-unmatch', path], False)
+        # TODO: there must be no 'git add' between these two commands
+        self.gu.call(['commit',
+                      '--author=%s <%s@%s>' % (getpass.getuser(), getpass.getuser(), platform.node()),
+                      '--message=', '--allow-empty-message'], False)
+
+        self.gu.call(['add', path], False)
+        self.gu.call(['commit',
+                      '--author=%s <%s@%s>' % (getpass.getuser(), getpass.getuser(), platform.node()),
+                      '--message=', '--allow-empty-message'], False)
+
+        # add a symlink from .git to .kaleido-git to make git continue to work
+        if platform.platform().startswith('Linux'):
+            os.symlink('.kaleido-git', native_git_path)
+        elif platform.platform().startswith('Windows'):
+            subprocess.call(['cmd', '/c', 'mklink', '/j', native_git_path, fixed_git_path])
+
+        return True
+
+    def unfix_git(self, path):
+        if not platform.platform().startswith('Linux') and not platform.platform().startswith('Windows'):
+            raise Exception('not supported platform')
+
+        native_git_path = os.path.join(path, '.git')
+        fixed_git_path = os.path.join(path, '.kaleido-git')
+        if not os.path.exists(native_git_path):
+            raise Exception('.git does not exist')
+        if not os.path.exists(fixed_git_path):
+            raise Exception('.kaleido-git does not exist')
+
+        self.gu.detect_working_copy_root()
+        self.gu.set_common_args(self.gu.get_path_args())
+
+        # remove previous entries in kaleido repository (sync is required to commit changes)
+        self.gu.call(['rm', '--cached', '-r', '--ignore-unmatch', path], False)
+        self.gu.call(['commit',
+                      '--author=%s <%s@%s>' % (getpass.getuser(), getpass.getuser(), platform.node()),
+                      '--message=', '--allow-empty-message'], False)
+
+        # remove the symlink and restore the original .git directory name
+        if platform.platform().startswith('Linux'):
+            os.unlink(native_git_path)
+        elif platform.platform().startswith('Windows'):
+            os.rmdir(native_git_path)
+
+        os.rename(fixed_git_path, native_git_path)
+
+        return True
+
     def git_command(self, args):
         self.gu.detect_working_copy_root()
         self.gu.set_common_args(self.gu.get_path_args())
@@ -736,7 +841,9 @@ def print_help():
     options = Options()
     print('usage: %s [OPTIONS] ' \
           '{ init | clone REPOSITORY | beacon | serve ADDRESS:PORT | ' \
-            'squash | sync | sync-forever | GIT-COMMAND }' % sys.argv[0])
+            'squash | sync | sync-forever | ' \
+            'fix-git PATH | unfix-git PATH | ' \
+            '| GIT-COMMAND }' % sys.argv[0])
     print()
     print('Options:')
     print('  -h                  Show this help message and exit')
@@ -750,11 +857,13 @@ def print_help():
     print('  -b ADDRESS:PORT     Specify the beacon TCP address [default: %s:%d]' % options.beacon_address)
     print('  -B                  Enable the beacon server in sync-forever')
     print('  -t TIMEOUT          Set the beacon connection timeout [default: %s sec]' % options.beacon_timeout)
-    print('  -k INTERVAL         Set the beacon connection keepalive interval [default: %s sec]' % options.beacon_keepalive)
+    print('  -k INTERVAL         Set the beacon connection keepalive interval [default: %s sec]' % \
+          options.beacon_keepalive)
     print('  -T INTERVAL         Set the minimum interval for beacon reconnection [default: %s sec]' % \
           options.reconnect_interval)
     print('  -y ADDRESS:PORT     Specify the internal control UDP address [default: %s:%d]' % options.control_address)
     print('  -u                  Do not add new files automatically in sync-forever')
+    print('  -D                  Allow destructive operations')
     print('  -c COMMAND          Run a user command after sync')
     print('  -q                  Be less verbose')
     print()
@@ -766,6 +875,8 @@ def print_help():
     print('  squash              Purge the sync history')
     print('  sync                Sync once')
     print('  sync-forever        Sync continuously')
+    print('  fix-git PATH        Fix the nested git repository to work with kaleido sync')
+    print('  unfix-git PATH      Restore the original nested git repository')
     print('  GIT-COMMAND         Execute a custom git command')
 
 def main():
@@ -822,6 +933,9 @@ def main():
         elif args[0] == '-u':
             options.update_only = True
             args = args[1:]
+        elif args[0] == '-D':
+            options.allow_destructive = True
+            args = args[1:]
         elif args[0] == '-c':
             options.command_after_sync = args[1]
             args = args[2:]
@@ -852,6 +966,7 @@ def main():
         ret = True if Kaleido(options).serve(address, int(port)) else False
     elif command == 'beacon':
         options.beacon_listen = True
+        options.working_copy = 'beacon'
         ret = True if Kaleido(options).beacon() else False
     elif command == 'squash':
         ret = True if Kaleido(options).squash() else False
@@ -859,6 +974,16 @@ def main():
         ret = True if Kaleido(options).sync() else False
     elif command == 'sync-forever':
         ret = True if Kaleido(options).sync_forever() else False
+    elif command == 'fix-git':
+        if len(args) < 1:
+            raise Exception('too few arguments')
+        path = args[0]
+        ret = True if Kaleido(options).fix_git(path) else False
+    elif command == 'unfix-git':
+        if len(args) < 1:
+            raise Exception('too few arguments')
+        path = args[0]
+        ret = True if Kaleido(options).unfix_git(path) else False
     else:
         ret = Kaleido(options).git_command([command] + args)
 
