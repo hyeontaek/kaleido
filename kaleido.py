@@ -258,10 +258,8 @@ class LocalChangeMonitor:
             try:
                 if path.startswith(meta_path):
                     continue
-                if os.path.isdir(path): # to avoid false detection of .git <=> .kaleido-git
+                if os.path.isdir(path) or os.path.basename(path) == '.git' or os.path.basename(path) == '.kaleido-git':
                     continue
-                #if os.path.basename(path) == '.git' or os.path.basename(path) == '.kaleido-git':
-                #    continue
                 #print(self.options.msg_prefix() + path)
                 self.flag = True
                 self.event.set()
@@ -284,10 +282,8 @@ class LocalChangeMonitor:
                 path = os.path.join(self.options.working_copy_root, name)
                 if path.startswith(meta_path):
                     continue
-                if os.path.isdir(path): # to avoid false detection of .git <=> .kaleido-git
+                if os.path.isdir(path) or os.path.basename(path) == '.git' or os.path.basename(path) == '.kaleido-git':
                     continue
-                #if os.path.basename(path) == '.git' or os.path.basename(path) == '.kaleido-git':
-                #    continue
                 #print(self.options.msg_prefix() + path)
                 self.flag = True
                 self.event.set()
