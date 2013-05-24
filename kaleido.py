@@ -682,6 +682,7 @@ class Kaleido:
         try:
             prev_last_change = self.gu.get_last_commit_time()
             last_diff = 0
+            last_push = 0
 
             while True:
                 event.wait(self._no_change_notifications[-1])
@@ -755,8 +756,10 @@ class Kaleido:
                     if last_commit_id != self.gu.get_last_commit_id():
                         changed = True
 
-                # figure out if there was indeed local changes
-                if changed:
+                now = time.time()
+
+                # push if there are any changes or did not push for a while (1 hour)
+                if changed or now - last_push >= 60 * 60:
                     # push local master to remote sync_inbox_ID for remote merge
                     if has_origin:
                         self.gu.call(['push', '--force', 'origin', 'master:sync_inbox_%s' % inbox_id], False)
@@ -765,11 +768,11 @@ class Kaleido:
                     remote_change_monitor.after_sync()
 
                     last_change = self.gu.get_last_commit_time()
+                    last_push = now
                 else:
                     last_change = prev_last_change
                     pass
 
-                now = time.time()
                 # detect and print the last change time
                 if prev_last_change != last_change or not sync_forever:
                     # new change
