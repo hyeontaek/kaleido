@@ -836,10 +836,10 @@ class Kaleido:
             os.rename(native_git_path, fixed_git_path)
 
             # remove any 'commit' entry that may exist
-            self.gu.call(['rm', '--cached', '-r', '--ignore-unmatch', path], False)
-            self.gu.call(['commit',
-                          '--author=%s <%s@%s>' % (getpass.getuser(), getpass.getuser(), platform.node()),
-                          '--message=', '--allow-empty-message'], False)
+            #self.gu.call(['rm', '--cached', '-r', '--ignore-unmatch', path], False)
+            #self.gu.call(['commit',
+            #              '--author=%s <%s@%s>' % (getpass.getuser(), getpass.getuser(), platform.node()),
+            #              '--message=', '--allow-empty-message'], False)
 
             # add a symlink from .git to .kaleido-git to make git continue to work
             self.link_kaleido_git(path)
@@ -867,10 +867,10 @@ class Kaleido:
             fixed_git_path = os.path.join(path, '.kaleido-git')
 
             # remove previous entries in kaleido repository
-            self.gu.call(['rm', '--cached', '-r', '--ignore-unmatch', path], False)
-            self.gu.call(['commit',
-                          '--author=%s <%s@%s>' % (getpass.getuser(), getpass.getuser(), platform.node()),
-                          '--message=', '--allow-empty-message'], False)
+            #self.gu.call(['rm', '--cached', '-r', '--ignore-unmatch', path], False)
+            #self.gu.call(['commit',
+            #              '--author=%s <%s@%s>' % (getpass.getuser(), getpass.getuser(), platform.node()),
+            #              '--message=', '--allow-empty-message'], False)
 
             # remove the symlink and restore the original .git directory name
             self.unlink_kaleido_git(path)
