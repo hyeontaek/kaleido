@@ -923,7 +923,7 @@ def print_help():
     print('  sync                Sync once')
     print('  sync-forever        Sync continuously')
     print('  track-git PATH      Include git repositories under PATH for sync')
-    print('  untrack-git PATH      Exclude git repositories under PATH fur sync')
+    print('  untrack-git PATH    Exclude git repositories under PATH fur sync')
     print('  GIT-COMMAND         Execute a custom git command')
 
 def main():
