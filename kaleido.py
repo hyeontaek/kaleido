@@ -725,6 +725,9 @@ class Kaleido:
                     if last_commit_id != self.gu.get_last_commit_id():
                         changed = True
 
+                if local_op or remote_op:
+                    self.try_to_repair_keleido_git_links()
+
                 now = time.time()
 
                 # push if there are any changes or did not push for a while (1 hour)
@@ -778,6 +781,38 @@ class Kaleido:
 
         return True
 
+    def link_kaleido_git(self, path):
+        native_git_path = os.path.join(path, '.git')
+        fixed_git_path = os.path.join(path, '.kaleido-git')
+
+        if platform.platform().startswith('Linux'):
+            os.symlink('.kaleido-git', native_git_path)
+        elif platform.platform().startswith('Windows'):
+            subprocess.call(['cmd', '/c', 'mklink', '/j', native_git_path, fixed_git_path])
+
+    def unlink_kaleido_git(self, path):
+        native_git_path = os.path.join(path, '.git')
+
+        if platform.platform().startswith('Linux'):
+            os.unlink(native_git_path)
+        elif platform.platform().startswith('Windows'):
+            os.rmdir(native_git_path)
+
+    def try_to_repair_keleido_git_links(self):
+        try:
+            for root, dirs, _ in os.walk(self.options.working_copy_root):
+                if not os.path.exists(os.path.join(root, '.kaleido-git')):
+                    continue
+
+                if os.path.exists(os.path.join(root, '.git')):
+                    self.unlink_kaleido_git(root)
+                    dirs.remove('.git')
+
+                self.link_kaleido_git(root)
+                dirs.remove('.kaleido-git')
+        except OSError:
+            pass
+
     def track_git(self, path):
         if not platform.platform().startswith('Linux') and not platform.platform().startswith('Windows'):
             raise Exception('not supported platform')
@@ -807,10 +842,7 @@ class Kaleido:
                           '--message=', '--allow-empty-message'], False)
 
             # add a symlink from .git to .kaleido-git to make git continue to work
-            if platform.platform().startswith('Linux'):
-                os.symlink('.kaleido-git', native_git_path)
-            elif platform.platform().startswith('Windows'):
-                subprocess.call(['cmd', '/c', 'mklink', '/j', native_git_path, fixed_git_path])
+            self.link_kaleido_git(path)
 
         return True
 
@@ -841,10 +873,7 @@ class Kaleido:
                           '--message=', '--allow-empty-message'], False)
 
             # remove the symlink and restore the original .git directory name
-            if platform.platform().startswith('Linux'):
-                os.unlink(native_git_path)
-            elif platform.platform().startswith('Windows'):
-                os.rmdir(native_git_path)
+            self.unlink_kaleido_git(path)
 
             os.rename(fixed_git_path, native_git_path)
 
