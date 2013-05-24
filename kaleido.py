@@ -655,7 +655,7 @@ class Kaleido:
             try:
                 os.rename(fixed_git_path, native_git_path)
             except OSError:
-                print(self.options.msg_prefix() + 'failed to rename .kaleido-git in %s' % root)
+                print(self.options.msg_prefix() + 'failed to rename %s' % fixed_git_path)
 
     def _sync(self, sync_forever):
         self.gu.detect_working_copy_root()
