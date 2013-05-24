@@ -602,12 +602,7 @@ class Kaleido:
             (          60), (          30), (          10),
         ]
 
-    def _add_changes(self):
-        # this function basically does the following, except
-        #   it only uses .kaleido/info/exclude to ignore files;
-        #   it renames .git to .kaleido-git temporarily to store changes in .git
-        #self.gu.call(['add', '--all'], False)
-
+    def _rename_git(self):
         # change .git to .kaleido-git to avoid inference from nested git repositories
         rename_list = []
         for root, dirs, _ in os.walk(self.options.working_copy_root):
@@ -626,6 +621,21 @@ class Kaleido:
                     native_git_path = os.path.join(root, '.git')
                     fixed_git_path = os.path.join(root, name)
                     rename_list.append((native_git_path, fixed_git_path))
+        return rename_list
+
+    def _rename_git_cleanup(self, rename_list):
+        # restore .git
+        for native_git_path, fixed_git_path in rename_list:
+            try:
+                os.rename(fixed_git_path, native_git_path)
+            except OSError:
+                print(self.options.msg_prefix() + 'failed to rename %s' % fixed_git_path)
+
+    def _add_changes(self):
+        # this function basically does the following, except
+        #   it only uses .kaleido/info/exclude to ignore files;
+        #   it renames .git to .kaleido-git temporarily to store changes in .git
+        #self.gu.call(['add', '--all'], False)
 
         # find new or modified files
         to_add = self.gu.call(['ls-files', '--modified', '--others', '-z',
@@ -646,16 +656,6 @@ class Kaleido:
             if not path: continue
             if not os.path.isdir(path):
                 self.gu.call(['rm', '--cached', path], False)
-
-        return rename_list
-
-    def _add_changes_cleanup(self, rename_list):
-        # restore .git
-        for native_git_path, fixed_git_path in rename_list:
-            try:
-                os.rename(fixed_git_path, native_git_path)
-            except OSError:
-                print(self.options.msg_prefix() + 'failed to rename %s' % fixed_git_path)
 
     def _sync(self, sync_forever):
         self.gu.detect_working_copy_root()
@@ -693,20 +693,21 @@ class Kaleido:
 
                 changed = False
 
+                if local_op or remote_op:
+                    rename_list = self._rename_git()
+
                 if local_op:
                     local_change_monitor.before_sync()
 
                     last_commit_id = self.gu.get_last_commit_id()
 
                     # try to add local changes
-                    rename_list = self._add_changes()
+                    self._add_changes()
 
                     # commit local changes to local master
                     self.gu.call(['commit',
                                   '--author=%s <%s@%s>' % (getpass.getuser(), getpass.getuser(), platform.node()),
                                   '--message=', '--allow-empty-message'], False)
-
-                    self._add_changes_cleanup(rename_list)
 
                     if last_commit_id != self.gu.get_last_commit_id():
                         changed = True
@@ -745,6 +746,7 @@ class Kaleido:
                                     succeeding = self.gu.call(['branch', '-M', 'new_master', 'master'], False)[0] == 0
                                 if succeeding:
                                     self.gu.call(['gc', '--aggressive'], False)
+                                    rename_list = []    # to avoid false renaming
                                 if not succeeding:
                                     print(self.options.msg_prefix() + 'failed to propagate squash')
                         else:
@@ -755,6 +757,9 @@ class Kaleido:
 
                     if last_commit_id != self.gu.get_last_commit_id():
                         changed = True
+
+                if local_op or remote_op:
+                    self._rename_git_cleanup(rename_list)
 
                 now = time.time()
 
