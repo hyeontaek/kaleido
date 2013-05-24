@@ -48,7 +48,6 @@ class Options:
         self.beacon_timeout = 60.
         self.reconnect_interval = 60.
         self.control_address = ('127.0.0.1', 0)
-        self.update_only = False
         self.allow_destructive = False
         self.command_after_sync = None
         self.quiet = False
@@ -259,7 +258,7 @@ class LocalChangeMonitor:
             try:
                 if path.startswith(meta_path):
                     continue
-                if os.path.dirname(path).endswith('.git') and os.path.basename(path) == 'index.lock':
+                if os.path.basename(path) == '.git' or os.path.basename(path) == '.kaleido-git':
                     continue
                 #print(self.options.msg_prefix() + path)
                 self.flag = True
@@ -283,7 +282,7 @@ class LocalChangeMonitor:
                 path = os.path.join(self.options.working_copy_root, name)
                 if path.startswith(meta_path):
                     continue
-                if os.path.dirname(path).endswith('.git') and os.path.basename(path) == 'index.lock':
+                if os.path.basename(path) == '.git' or os.path.basename(path) == '.kaleido-git':
                     continue
                 #print(self.options.msg_prefix() + path)
                 self.flag = True
@@ -603,6 +602,61 @@ class Kaleido:
             (          60), (          30), (          10),
         ]
 
+    def _add_changes(self):
+        # this function basically does the following, except
+        #   it only uses .kaleido/info/exclude to ignore files;
+        #   it renames .git to .kaleido-git temporarily to store changes in .git
+        #self.gu.call(['add', '--all'], False)
+
+        # change .git to .kaleido-git to avoid inference from nested git repositories
+        rename_list = []
+        for root, dirs, _ in os.walk(self.options.working_copy_root):
+            for idx, name in enumerate(dirs):
+                if name == '.git':
+                    native_git_path = os.path.join(root, name)
+                    fixed_git_path = os.path.join(root, '.kaleido-git')
+                    try:
+                        os.rename(native_git_path, fixed_git_path)
+                        print(self.options.msg_prefix() + 'temporarily renamed .git in %s' % root)
+                        dirs[idx] = '.kaleido-git'
+                        rename_list.append((native_git_path, fixed_git_path))
+                    except OSError:
+                        print(self.options.msg_prefix() + 'failed to rename .git in %s' % root)
+                elif name == '.kaleido-git':
+                    native_git_path = os.path.join(root, '.git')
+                    fixed_git_path = os.path.join(root, name)
+                    rename_list.append((native_git_path, fixed_git_path))
+
+        # find new or modified files
+        to_add = self.gu.call(['ls-files', '--modified', '--others', '-z',
+                               '--exclude-from=' + \
+                               os.path.join(self.options.working_copy_root, '.kaleido/info/exclude'),
+                               self.options.working_copy_root], False)[1]
+        for path in to_add.split('\0'):
+            if not path: continue
+            if not os.path.isdir(path):
+                self.gu.call(['add', '--force', path], False)
+
+        # find removed files
+        to_rm = self.gu.call(['ls-files', '--deleted', '-z',
+                              '--exclude-from=' + \
+                              os.path.join(self.options.working_copy_root, '.kaleido/info/exclude'),
+                              self.options.working_copy_root], False)[1]
+        for path in to_rm.split('\0'):
+            if not path: continue
+            if not os.path.isdir(path):
+                self.gu.call(['rm', '--cached', path], False)
+
+        return rename_list
+
+    def _add_changes_cleanup(self, rename_list):
+        # restore .git
+        for native_git_path, fixed_git_path in rename_list:
+            try:
+                os.rename(fixed_git_path, native_git_path)
+            except OSError:
+                print(self.options.msg_prefix() + 'failed to rename .kaleido-git in %s' % root)
+
     def _sync(self, sync_forever):
         self.gu.detect_working_copy_root()
         meta_path = self.options.meta_path()
@@ -644,15 +698,14 @@ class Kaleido:
                     last_commit_id = self.gu.get_last_commit_id()
 
                     # try to add local changes
-                    if self.options.update_only:
-                        self.gu.call(['add', '--update'], False)
-                    else:
-                        self.gu.call(['add', '--all'], False)
+                    rename_list = self._add_changes()
 
                     # commit local changes to local master
                     self.gu.call(['commit',
                                   '--author=%s <%s@%s>' % (getpass.getuser(), getpass.getuser(), platform.node()),
                                   '--message=', '--allow-empty-message'], False)
+
+                    self._add_changes_cleanup(rename_list)
 
                     if last_commit_id != self.gu.get_last_commit_id():
                         changed = True
@@ -753,83 +806,83 @@ class Kaleido:
 
         return True
 
-    def fix_git(self, path):
-        if not platform.platform().startswith('Linux') and not platform.platform().startswith('Windows'):
-            raise Exception('not supported platform')
+    # def fix_git(self, path):
+    #     if not platform.platform().startswith('Linux') and not platform.platform().startswith('Windows'):
+    #         raise Exception('not supported platform')
 
-        native_git_path = os.path.join(path, '.git')
-        fixed_git_path = os.path.join(path, '.kaleido-git')
-        if not os.path.exists(native_git_path):
-            if not os.path.exists(fixed_git_path):
-                raise Exception('.git does not exist')
-            else:
-                # we just need to relink
-                if platform.platform().startswith('Linux'):
-                    os.symlink('.kaleido-git', native_git_path)
-                elif platform.platform().startswith('Windows'):
-                    subprocess.call(['cmd', '/c', 'mklink', '/j', native_git_path, fixed_git_path])
-            return True
-        if os.path.exists(fixed_git_path):
-            raise Exception('.kaleido-git already exists')
+    #     native_git_path = os.path.join(path, '.git')
+    #     fixed_git_path = os.path.join(path, '.kaleido-git')
+    #     if not os.path.exists(native_git_path):
+    #         if not os.path.exists(fixed_git_path):
+    #             raise Exception('.git does not exist')
+    #         else:
+    #             # we just need to relink
+    #             if platform.platform().startswith('Linux'):
+    #                 os.symlink('.kaleido-git', native_git_path)
+    #             elif platform.platform().startswith('Windows'):
+    #                 subprocess.call(['cmd', '/c', 'mklink', '/j', native_git_path, fixed_git_path])
+    #         return True
+    #     if os.path.exists(fixed_git_path):
+    #         raise Exception('.kaleido-git already exists')
 
-        self.gu.detect_working_copy_root()
-        self.gu.set_common_args(self.gu.get_path_args())
+    #     self.gu.detect_working_copy_root()
+    #     self.gu.set_common_args(self.gu.get_path_args())
 
-        # rename .git to ours so that git does not think this path as a submodule
-        os.rename(native_git_path, fixed_git_path)
-        # add a new entry to exclude list
-        if '.kaleido-git' + '\n' not in open(os.path.join(fixed_git_path, 'info', 'exclude'), 'rt').readlines():
-            open(os.path.join(fixed_git_path, 'info', 'exclude'), 'at').write('.kaleido-git' + '\n')
+    #     # rename .git to ours so that git does not think this path as a submodule
+    #     os.rename(native_git_path, fixed_git_path)
+    #     # add a new entry to exclude list
+    #     if '.kaleido-git' + '\n' not in open(os.path.join(fixed_git_path, 'info', 'exclude'), 'rt').readlines():
+    #         open(os.path.join(fixed_git_path, 'info', 'exclude'), 'at').write('.kaleido-git' + '\n')
 
-        # remove the previous 'commit' entry that may exist (sync is required to commit changes)
-        self.gu.call(['rm', '--cached', '-r', '--ignore-unmatch', path], False)
-        # TODO: there must be no 'git add' between these two commands
-        self.gu.call(['commit',
-                      '--author=%s <%s@%s>' % (getpass.getuser(), getpass.getuser(), platform.node()),
-                      '--message=', '--allow-empty-message'], False)
+    #     # remove the previous 'commit' entry that may exist (sync is required to commit changes)
+    #     self.gu.call(['rm', '--cached', '-r', '--ignore-unmatch', path], False)
+    #     # TODO: there must be no 'git add' between these two commands
+    #     self.gu.call(['commit',
+    #                   '--author=%s <%s@%s>' % (getpass.getuser(), getpass.getuser(), platform.node()),
+    #                   '--message=', '--allow-empty-message'], False)
 
-        self.gu.call(['add', path], False)
-        self.gu.call(['commit',
-                      '--author=%s <%s@%s>' % (getpass.getuser(), getpass.getuser(), platform.node()),
-                      '--message=', '--allow-empty-message'], False)
+    #     self.gu.call(['add', path], False)
+    #     self.gu.call(['commit',
+    #                   '--author=%s <%s@%s>' % (getpass.getuser(), getpass.getuser(), platform.node()),
+    #                   '--message=', '--allow-empty-message'], False)
 
-        # add a symlink from .git to .kaleido-git to make git continue to work
-        if platform.platform().startswith('Linux'):
-            os.symlink('.kaleido-git', native_git_path)
-        elif platform.platform().startswith('Windows'):
-            subprocess.call(['cmd', '/c', 'mklink', '/j', native_git_path, fixed_git_path])
+    #     # add a symlink from .git to .kaleido-git to make git continue to work
+    #     if platform.platform().startswith('Linux'):
+    #         os.symlink('.kaleido-git', native_git_path)
+    #     elif platform.platform().startswith('Windows'):
+    #         subprocess.call(['cmd', '/c', 'mklink', '/j', native_git_path, fixed_git_path])
 
-        return True
+    #     return True
 
-    def unfix_git(self, path):
-        if not platform.platform().startswith('Linux') and not platform.platform().startswith('Windows'):
-            raise Exception('not supported platform')
+    # def unfix_git(self, path):
+    #     if not platform.platform().startswith('Linux') and not platform.platform().startswith('Windows'):
+    #         raise Exception('not supported platform')
 
-        native_git_path = os.path.join(path, '.git')
-        fixed_git_path = os.path.join(path, '.kaleido-git')
-        if not os.path.exists(native_git_path):
-            raise Exception('.git does not exist')
-        if not os.path.exists(fixed_git_path):
-            raise Exception('.kaleido-git does not exist')
+    #     native_git_path = os.path.join(path, '.git')
+    #     fixed_git_path = os.path.join(path, '.kaleido-git')
+    #     if not os.path.exists(native_git_path):
+    #         raise Exception('.git does not exist')
+    #     if not os.path.exists(fixed_git_path):
+    #         raise Exception('.kaleido-git does not exist')
 
-        self.gu.detect_working_copy_root()
-        self.gu.set_common_args(self.gu.get_path_args())
+    #     self.gu.detect_working_copy_root()
+    #     self.gu.set_common_args(self.gu.get_path_args())
 
-        # remove previous entries in kaleido repository (sync is required to commit changes)
-        self.gu.call(['rm', '--cached', '-r', '--ignore-unmatch', path], False)
-        self.gu.call(['commit',
-                      '--author=%s <%s@%s>' % (getpass.getuser(), getpass.getuser(), platform.node()),
-                      '--message=', '--allow-empty-message'], False)
+    #     # remove previous entries in kaleido repository (sync is required to commit changes)
+    #     self.gu.call(['rm', '--cached', '-r', '--ignore-unmatch', path], False)
+    #     self.gu.call(['commit',
+    #                   '--author=%s <%s@%s>' % (getpass.getuser(), getpass.getuser(), platform.node()),
+    #                   '--message=', '--allow-empty-message'], False)
 
-        # remove the symlink and restore the original .git directory name
-        if platform.platform().startswith('Linux'):
-            os.unlink(native_git_path)
-        elif platform.platform().startswith('Windows'):
-            os.rmdir(native_git_path)
+    #     # remove the symlink and restore the original .git directory name
+    #     if platform.platform().startswith('Linux'):
+    #         os.unlink(native_git_path)
+    #     elif platform.platform().startswith('Windows'):
+    #         os.rmdir(native_git_path)
 
-        os.rename(fixed_git_path, native_git_path)
+    #     os.rename(fixed_git_path, native_git_path)
 
-        return True
+    #     return True
 
     def git_command(self, args):
         self.gu.detect_working_copy_root()
@@ -842,8 +895,8 @@ def print_help():
     print('usage: %s [OPTIONS] ' \
           '{ init | clone REPOSITORY | beacon | serve ADDRESS:PORT | ' \
             'squash | sync | sync-forever | ' \
-            'fix-git PATH | unfix-git PATH | ' \
-            '| GIT-COMMAND }' % sys.argv[0])
+            # 'fix-git PATH | unfix-git PATH | ' \
+            'GIT-COMMAND }' % sys.argv[0])
     print()
     print('Options:')
     print('  -h                  Show this help message and exit')
@@ -862,7 +915,6 @@ def print_help():
     print('  -T INTERVAL         Set the minimum interval for beacon reconnection [default: %s sec]' % \
           options.reconnect_interval)
     print('  -y ADDRESS:PORT     Specify the internal control UDP address [default: %s:%d]' % options.control_address)
-    print('  -u                  Do not add new files automatically in sync-forever')
     print('  -D                  Allow destructive operations')
     print('  -c COMMAND          Run a user command after sync')
     print('  -q                  Be less verbose')
@@ -930,9 +982,6 @@ def main():
             address, port = args[1].split(':', 1)
             options.control_address = (address, int(port))
             args = args[2:]
-        elif args[0] == '-u':
-            options.update_only = True
-            args = args[1:]
         elif args[0] == '-D':
             options.allow_destructive = True
             args = args[1:]
@@ -974,16 +1023,16 @@ def main():
         ret = True if Kaleido(options).sync() else False
     elif command == 'sync-forever':
         ret = True if Kaleido(options).sync_forever() else False
-    elif command == 'fix-git':
-        if len(args) < 1:
-            raise Exception('too few arguments')
-        path = args[0]
-        ret = True if Kaleido(options).fix_git(path) else False
-    elif command == 'unfix-git':
-        if len(args) < 1:
-            raise Exception('too few arguments')
-        path = args[0]
-        ret = True if Kaleido(options).unfix_git(path) else False
+    # elif command == 'fix-git':
+    #     if len(args) < 1:
+    #         raise Exception('too few arguments')
+    #     path = args[0]
+    #     ret = True if Kaleido(options).fix_git(path) else False
+    # elif command == 'unfix-git':
+    #     if len(args) < 1:
+    #         raise Exception('too few arguments')
+    #     path = args[0]
+    #     ret = True if Kaleido(options).unfix_git(path) else False
     else:
         ret = Kaleido(options).git_command([command] + args)
 
