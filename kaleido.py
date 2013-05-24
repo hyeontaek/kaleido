@@ -612,7 +612,7 @@ class Kaleido:
                     fixed_git_path = os.path.join(root, '.kaleido-git')
                     try:
                         os.rename(native_git_path, fixed_git_path)
-                        print(self.options.msg_prefix() + 'temporarily renamed .git in %s' % root)
+                        #print(self.options.msg_prefix() + 'temporarily renamed .git in %s' % root)
                         dirs[idx] = '.kaleido-git'
                         rename_list.append((native_git_path, fixed_git_path))
                     except OSError:
