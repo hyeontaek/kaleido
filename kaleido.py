@@ -514,6 +514,12 @@ class RemoteChangeMonitor:
             for peer in peers_to_close:
                 if peer in self.peers:
                     print(self.options.msg_prefix() + 'connection to %s:%d closed' % peer.addr)
+                    if peer.buf and self.beacon_listen:
+                        # if we could not send a signal because the socket is closed,
+                        # retry again with a new connection socket
+                        # we do not need this on a beacon server because the clients will assume
+                        # remote changes when they reconnect to the server
+                        self.need_to_send_signal = True
                     self.peers.remove(peer)
                     peer.sock.close()
 
@@ -675,7 +681,7 @@ class Kaleido:
         try:
             prev_last_change = self.gu.get_last_commit_time()
             last_diff = 0
-            last_push = 0
+            first_sync = True
 
             while True:
                 event.wait(self._no_change_notifications[-1])
@@ -750,10 +756,8 @@ class Kaleido:
                 if local_op or remote_op:
                     self.try_to_repair_keleido_git_links()
 
-                now = time.time()
-
-                # push if there are any changes or did not push for a while (1 hour)
-                if changed or now - last_push >= 60 * 60:
+                # push if there are any changes or in the first sync trial (the last run may have missed a push)
+                if changed or first_sync:
                     # push local master to remote sync_inbox_ID for remote merge
                     if has_origin:
                         self.gu.call(['push', '--force', 'origin', 'master:sync_inbox_%s' % inbox_id], False)
@@ -762,11 +766,11 @@ class Kaleido:
                     remote_change_monitor.after_sync()
 
                     last_change = self.gu.get_last_commit_time()
-                    last_push = now
                 else:
                     last_change = prev_last_change
 
                 # detect and print the last change time
+                now = time.time()
                 if prev_last_change != last_change or not sync_forever:
                     # new change
                     diff_msg = TimeUtil.get_timediff_str(now - last_change)
@@ -791,6 +795,7 @@ class Kaleido:
 
                 if sync_forever:
                     time.sleep(self.options.sync_interval)
+                    first_sync = False
                     continue
                 else:
                     break
