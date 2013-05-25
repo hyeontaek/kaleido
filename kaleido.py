@@ -27,11 +27,9 @@ import subprocess
 import sys
 import time
 import threading
-try:
+if platform.platform().startswith('Windows'):
     import win32file
     import win32con
-except ImportError:
-    pass
 
 
 class Options:
@@ -58,14 +56,14 @@ class Options:
 
     def msg_prefix(self):
         if self.working_copy_root != None:
-            s = self.working_copy_root + ': '
+            prefix = self.working_copy_root + ': '
         else:
-            s = os.path.abspath(self.working_copy) + ': '
-        if len(s) < 20:
-            s = '%-20s' % s
+            prefix = os.path.abspath(self.working_copy) + ': '
+        if len(prefix) < 20:
+            prefix = '%-20s' % prefix
         else:
-            s = s[:7] + '...' + s[-10:]
-        return s
+            prefix = prefix[:7] + '...' + prefix[-10:]
+        return prefix
 
 
 class GitUtil:
@@ -90,19 +88,19 @@ class GitUtil:
     def call(self, args, must_succeed=True):
         #if not self.options.quiet:
         #    print(self.options.msg_prefix() + '  $ ' + ' '.join([self.options.git] + self.common_args + args))
-        p = subprocess.Popen([self.options.git] + self.common_args + args,
-                             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        p.stdin.close()
+        proc = subprocess.Popen([self.options.git] + self.common_args + args,
+                                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        proc.stdin.close()
 
         threads = []
         stdout_buf = io.StringIO()
         stderr_buf = None
         tee_stdout = None if self.options.quiet else sys.stdout
         tee_stderr = None if self.options.quiet else sys.stderr
-        threads.append(threading.Thread(target=self._copy_output, args=(p.stdout, stdout_buf, tee_stdout)))
-        threads.append(threading.Thread(target=self._copy_output, args=(p.stderr, stderr_buf, tee_stderr)))
+        threads.append(threading.Thread(target=self._copy_output, args=(proc.stdout, stdout_buf, tee_stdout)))
+        threads.append(threading.Thread(target=self._copy_output, args=(proc.stderr, stderr_buf, tee_stderr)))
         list([thread.start() for thread in threads])
-        ret = p.wait()
+        ret = proc.wait()
         list([thread.join() for thread in threads])
 
         if must_succeed and ret != 0:
@@ -123,7 +121,7 @@ class GitUtil:
     def detect_git_version(self):
         version = self.call(['--version'])[1]
         version = version.split(' ')[2]
-        version = tuple([int(x) for x in version.split('.')[:3]])
+        version = tuple([int(field) for field in version.split('.')[:3]])
         return version
 
     def detect_working_copy_root(self):
@@ -142,7 +140,7 @@ class GitUtil:
         ret = self.call(['branch', '--no-color'], False)
         if ret[0] != 0:
             return
-            yield
+            yield   # empty generator
         for line in ret[1].splitlines():
             yield line[2:].strip()
 
@@ -193,6 +191,9 @@ class LocalChangeMonitor:
         self.exiting = False
         self.flag = False
         self.event = event
+        self.proc = None
+        self.thread = None
+        self.handle = None
 
     def __del__(self):
         if self.running:
@@ -213,30 +214,31 @@ class LocalChangeMonitor:
         if not self.use_polling:
             if platform.platform().startswith('Linux'):
                 print(self.options.msg_prefix() + 'monitoring local changes in %s' % self.options.working_copy_root)
-                self.p = subprocess.Popen(['inotifywait', '--monitor', '--recursive', '--quiet',
-                                           '-e', 'modify', '-e', 'attrib', '-e', 'close_write',
-                                           '-e', 'move', '-e', 'create', '-e', 'delete',
-                                           '--format', '%w%f',
-                                           self.options.working_copy_root],
-                                          stdin=subprocess.PIPE, stdout=subprocess.PIPE)
-                self.p.stdin.close()
-                self.t = threading.Thread(target=self._inotifywait_handler, args=())
-                self.t.start()
+                self.proc = subprocess.Popen(['inotifywait', '--monitor', '--recursive', '--quiet',
+                                              '-e', 'modify', '-e', 'attrib', '-e', 'close_write',
+                                              '-e', 'move', '-e', 'create', '-e', 'delete',
+                                              '--format', '%w%f',
+                                              self.options.working_copy_root],
+                                             stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+                self.proc.stdin.close()
+                self.thread = threading.Thread(target=self._inotifywait_handler, args=())
+                self.thread.start()
             elif platform.platform().startswith('Windows'):
                 print(self.options.msg_prefix() + 'monitoring local changes in %s' % self.options.working_copy_root)
-                FILE_LIST_DIRECTORY = 1
-                self.h = win32file.CreateFile(self.options.working_copy_root, FILE_LIST_DIRECTORY,
-                                              win32con.FILE_SHARE_READ | win32con.FILE_SHARE_WRITE |
-                                              win32con.FILE_SHARE_DELETE,
-                                              None, win32con.OPEN_EXISTING, win32con.FILE_FLAG_BACKUP_SEMANTICS, None)
-                self.t = threading.Thread(target=self._ReadDirectoryChanges_handler, args=())
-                self.t.start()
+                # FILE_LIST_DIRECTORY = 1 (for the second argument)
+                self.handle = win32file.CreateFile(self.options.working_copy_root, 1,
+                                                   win32con.FILE_SHARE_READ | win32con.FILE_SHARE_WRITE |
+                                                   win32con.FILE_SHARE_DELETE,
+                                                   None, win32con.OPEN_EXISTING, win32con.FILE_FLAG_BACKUP_SEMANTICS,
+                                                   None)
+                self.thread = threading.Thread(target=self._read_directory_changes_handler, args=())
+                self.thread.start()
             else:
+                # TODO: support Kevent for BSD
                 self.use_polling = True
         if self.use_polling:
             print(self.options.msg_prefix() + \
                   'monitoring local changes in %s (polling)' % self.options.working_copy_root)
-        # TODO: support Kevent for BSD
         self.running = True
 
     def stop(self):
@@ -245,19 +247,19 @@ class LocalChangeMonitor:
         self.running = False
         if not self.use_polling:
             if platform.platform().startswith('Linux'):
-                self.p.terminate()
+                self.proc.terminate()
                 # the following is skipped for faster termination
-                #self.p.wait()
-                #self.t.join()
+                #self.proc.wait()
+                #self.thread.join()
             elif platform.platform().startswith('Windows'):
-                win32file.CloseHandle(self.h)
+                win32file.CloseHandle(self.handle)
                 # the following is skipped for faster termination
-                #self.t.join()
+                #self.thread.join()
 
     def _inotifywait_handler(self):
         meta_path = self.options.meta_path()
         while not self.exiting:
-            path = self.p.stdout.readline(4096).strip().decode(sys.getdefaultencoding())
+            path = self.proc.stdout.readline(4096).strip().decode(sys.getdefaultencoding())
             if not path:
                 break
             try:
@@ -270,12 +272,12 @@ class LocalChangeMonitor:
                 self.event.set()
             except ValueError:
                 pass
-        self.p.stdout.close()
+        self.proc.stdout.close()
 
-    def _ReadDirectoryChanges_handler(self):
+    def _read_directory_changes_handler(self):
         meta_path = self.options.meta_path()
         while not self.exiting:
-            results = win32file.ReadDirectoryChangesW(self.h, 1024, True,
+            results = win32file.ReadDirectoryChangesW(self.handle, 1024, True,
                                                       win32con.FILE_NOTIFY_CHANGE_FILE_NAME |
                                                       win32con.FILE_NOTIFY_CHANGE_DIR_NAME |
                                                       win32con.FILE_NOTIFY_CHANGE_ATTRIBUTES |
@@ -307,6 +309,11 @@ class RemoteChangeMonitor:
         self.flag = False
         self.event = event
         self.need_to_send_signal = False
+        self.peers = None
+        self.thread = None
+        self.sock_server = None
+        self.sock_control_server = None
+        self.sock_control_client = None
 
     def __del__(self):
         if self.running:
@@ -322,7 +329,7 @@ class RemoteChangeMonitor:
     def after_sync(self):
         if not self.use_polling:
             self.need_to_send_signal = True
-            self.s_control_client.sendto(b'w', self.control_address)
+            self.sock_control_client.sendto(b'w', self.control_address)
 
     def start(self):
         assert not self.running
@@ -335,44 +342,44 @@ class RemoteChangeMonitor:
         if not self.use_polling:
             self.peers = []
             if self.beacon_listen:
-                self.s_server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                self.s_server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-                self.s_server.bind(self.beacon_address)
-                self.s_server.listen(5)
+                self.sock_server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                self.sock_server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                self.sock_server.bind(self.beacon_address)
+                self.sock_server.listen(5)
                 print(self.options.msg_prefix() + 'beacon server listening at %s:%d' % self.beacon_address)
-            self.s_control_server = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            self.s_control_server.bind(self.control_address)
-            self.control_address = self.s_control_server.getsockname()
-            self.s_control_client = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            self.t = threading.Thread(target=self._handler, args=())
-            self.t.start()
+            self.sock_control_server = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            self.sock_control_server.bind(self.control_address)
+            self.control_address = self.sock_control_server.getsockname()
+            self.sock_control_client = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            self.thread = threading.Thread(target=self._handler, args=())
+            self.thread.start()
         self.running = True
 
     def stop(self):
         assert self.running
         self.exiting = True
         if not self.use_polling:
-            self.s_control_client.sendto(b'w', self.control_address)
-            self.t.join()
+            self.sock_control_client.sendto(b'w', self.control_address)
+            self.thread.join()
             if self.beacon_listen:
-                self.s_server.close()
-            for p in self.peers:
-                p.socket.close()
-            self.s_control_client.close()
-            self.s_control_server.close()
+                self.sock_server.close()
+            for peer in self.peers:
+                peer.sock.close()
+            self.sock_control_client.close()
+            self.sock_control_server.close()
         self.running = False
 
     class _Peer:
-        def __init__(self, socket, addr, buf, last_recv, last_send):
-            self.socket = socket
+        def __init__(self, sock, addr, buf, last_recv, last_send):
+            self.sock = sock 
             self.addr = addr
             self.buf = buf
             self.last_recv = last_recv
             self.last_send = last_send
 
-    def _find_peer_idx(self, s):
-        for idx, p in enumerate(self.peers):
-            if p.socket == s:
+    def _find_peer_idx(self, sock):
+        for idx, peer in enumerate(self.peers):
+            if peer.sock == sock:
                 return idx
         return -1
 
@@ -384,8 +391,8 @@ class RemoteChangeMonitor:
                 if self.need_to_send_signal:
                     can_exit = False
                 else:
-                    for p in self.peers:
-                        if p.buf:
+                    for peer in self.peers:
+                        if peer.buf:
                             can_exit = False
                             break
                 if can_exit:
@@ -395,27 +402,27 @@ class RemoteChangeMonitor:
             if not self.beacon_listen and not self.peers and \
                now - last_connect_attempt >= self.options.reconnect_interval:
                 last_connect_attempt = now
-                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                s.setblocking(0)
-                s.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
-                s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.setblocking(0)
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+                sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
                 print(self.options.msg_prefix() + 'connecting to beacon server %s:%d' % self.beacon_address)
                 try:
-                    s.connect(self.beacon_address)
+                    sock.connect(self.beacon_address)
                 except socket.error:
                     pass
-                self.peers.append(self._Peer(s, self.beacon_address, b'', now, now))
+                self.peers.append(self._Peer(sock, self.beacon_address, b'', now, now))
                 self.flag = True    # assume changes because we may have missed signals
                 self.event.set()
 
-            socks_to_read = [self.s_control_server] + [p.socket for p in self.peers]
+            socks_to_read = [self.sock_control_server] + [peer.sock for peer in self.peers]
             if self.beacon_listen:
-                socks_to_read += [self.s_server]
+                socks_to_read += [self.sock_server]
             socks_to_write = []
-            socks_to_check_error = [p.socket for p in self.peers]
-            for idx, p in enumerate(self.peers):
-                if p.buf:
-                    socks_to_write.append(p.socket)
+            socks_to_check_error = [peer.sock for peer in self.peers]
+            for idx, peer in enumerate(self.peers):
+                if peer.buf:
+                    socks_to_write.append(peer.sock)
             peers_to_close = []
 
             if socks_to_read or socks_to_write:
@@ -425,12 +432,12 @@ class RemoteChangeMonitor:
                 rlist, wlist, elist = [], [], []
 
             now = time.time()
-            for s in rlist:
-                if s == self.s_control_server:
+            for sock in rlist:
+                if sock == self.sock_control_server:
                     # no-op; the purpose of the control message is just to escape select()
-                    msg = s.recvfrom(1)
-                elif self.beacon_listen and s == self.s_server:
-                    s_new_client, addr = self.s_server.accept()
+                    msg = sock.recvfrom(1)
+                elif self.beacon_listen and sock == self.sock_server:
+                    s_new_client, addr = self.sock_server.accept()
                     now = time.time()
                     print(self.options.msg_prefix() + 'new peer from %s:%d' % addr)
                     try:
@@ -441,18 +448,18 @@ class RemoteChangeMonitor:
                         pass
                     self.peers.append(self._Peer(s_new_client, addr, b'', now, now))
                 else:
-                    idx = self._find_peer_idx(s)
+                    idx = self._find_peer_idx(sock)
                     assert idx != -1
-                    p = self.peers[idx]
+                    peer = self.peers[idx]
                     try:
-                        msg = s.recv(1)
+                        msg = sock.recv(1)
                         if msg:
-                            p.last_recv = now
+                            peer.last_recv = now
                     except socket.error:
                         msg = None
                     if msg == b'k':
                         # keepalive
-                        #print(self.options.msg_prefix() + 'keepalive from %s:%d' % p.addr)
+                        #print(self.options.msg_prefix() + 'keepalive from %s:%d' % peer.addr)
                         pass
                     elif msg == b'c':
                         # changes
@@ -462,53 +469,53 @@ class RemoteChangeMonitor:
                             # broadcast except the source
                             print(self.options.msg_prefix() + \
                                   'notifying %d peers for remote changes' % (len(self.peers) - 1))
-                            for p2 in self.peers:
-                                if p != p2:
-                                    p2.buf = b'c'
-                                    p2.last_send = now
+                            for peer2 in self.peers:
+                                if peer != peer2:
+                                    peer2.buf = b'c'
+                                    peer2.last_send = now
                     else:
                         if msg:
-                            print(self.options.msg_prefix() + 'unexpected response from %s:%d' % p.addr)
-                        peers_to_close.append(p)
+                            print(self.options.msg_prefix() + 'unexpected response from %s:%d' % peer.addr)
+                        peers_to_close.append(peer)
 
-            for s in wlist:
-                idx = self._find_peer_idx(s)
+            for sock in wlist:
+                idx = self._find_peer_idx(sock)
                 assert idx != -1
-                p = self.peers[idx]
+                peer = self.peers[idx]
                 try:
-                    wrote_len = p.socket.send(p.buf)
-                    p.buf = p.buf[wrote_len:]
+                    wrote_len = peer.sock.send(peer.buf)
+                    peer.buf = peer.buf[wrote_len:]
                 except socket.error:
                     pass
 
-            for s in elist:
-                idx = self._find_peer_idx(s)
+            for sock in elist:
+                idx = self._find_peer_idx(sock)
                 assert idx != -1
-                p = self.peers[idx]
-                peers_to_close.append(p)
+                peer = self.peers[idx]
+                peers_to_close.append(peer)
 
             if self.need_to_send_signal:
                 # broadcast
                 print(self.options.msg_prefix() + 'notifying %d peers for local changes' % len(self.peers))
-                for p in self.peers:
-                    p.buf = b'c'
-                    p.last_send = now
+                for peer in self.peers:
+                    peer.buf = b'c'
+                    peer.last_send = now
                 self.need_to_send_signal = False
 
-            for p in self.peers:
-                if now - p.last_recv > self.options.beacon_timeout:
-                    print(self.options.msg_prefix() + 'connection to %s:%d timeout' % p.addr)
-                    peers_to_close.append(p)
-                elif now - p.last_send > self.options.beacon_keepalive:
-                    if not p.buf:
-                        p.buf = b'k'
-                    p.last_send = now
+            for peer in self.peers:
+                if now - peer.last_recv > self.options.beacon_timeout:
+                    print(self.options.msg_prefix() + 'connection to %s:%d timeout' % peer.addr)
+                    peers_to_close.append(peer)
+                elif now - peer.last_send > self.options.beacon_keepalive:
+                    if not peer.buf:
+                        peer.buf = b'k'
+                    peer.last_send = now
 
-            for p in peers_to_close:
-                if p in self.peers:
-                    print(self.options.msg_prefix() + 'connection to %s:%d closed' % p.addr)
-                    self.peers.remove(p)
-                    p.socket.close()
+            for peer in peers_to_close:
+                if peer in self.peers:
+                    print(self.options.msg_prefix() + 'connection to %s:%d closed' % peer.addr)
+                    self.peers.remove(peer)
+                    peer.sock.close()
 
 
 class Kaleido:
@@ -758,7 +765,6 @@ class Kaleido:
                     last_push = now
                 else:
                     last_change = prev_last_change
-                    pass
 
                 # detect and print the last change time
                 if prev_last_change != last_change or not sync_forever:
@@ -796,7 +802,8 @@ class Kaleido:
 
         return True
 
-    def link_kaleido_git(self, path):
+    @staticmethod
+    def link_kaleido_git(path):
         if not platform.platform().startswith('Linux') and not platform.platform().startswith('Windows'):
             raise Exception('not supported platform')
 
@@ -808,7 +815,8 @@ class Kaleido:
         elif platform.platform().startswith('Windows'):
             subprocess.call(['cmd', '/c', 'mklink', '/j', native_git_path, fixed_git_path])
 
-    def unlink_kaleido_git(self, path):
+    @staticmethod
+    def unlink_kaleido_git(path):
         if not platform.platform().startswith('Linux') and not platform.platform().startswith('Windows'):
             raise Exception('not supported platform')
 
