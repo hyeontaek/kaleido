@@ -30,7 +30,8 @@ import threading
 try:
     import win32file
     import win32con
-except ImportError: pass
+except ImportError:
+    pass
 
 
 class Options:
@@ -77,10 +78,13 @@ class GitUtil:
 
     def _copy_output(self, src, dest, tee=None):
         while True:
-            s = src.readline(4096).decode(sys.getdefaultencoding())
-            if not s: break
-            if dest: dest.write(s)
-            if tee: tee.write(self.options.msg_prefix() + '  ' + s)
+            line = src.readline(4096).decode(sys.getdefaultencoding())
+            if not line:
+                break
+            if dest:
+                dest.write(line)
+            if tee:
+                tee.write(self.options.msg_prefix() + '  ' + line)
         src.close()
 
     def call(self, args, must_succeed=True):
@@ -97,9 +101,9 @@ class GitUtil:
         tee_stderr = None if self.options.quiet else sys.stderr
         threads.append(threading.Thread(target=self._copy_output, args=(p.stdout, stdout_buf, tee_stdout)))
         threads.append(threading.Thread(target=self._copy_output, args=(p.stderr, stderr_buf, tee_stderr)))
-        list([t.start() for t in threads])
+        list([thread.start() for thread in threads])
         ret = p.wait()
-        list([t.join() for t in threads])
+        list([thread.join() for thread in threads])
 
         if must_succeed and ret != 0:
             raise RuntimeError('git returned %d' % ret)
@@ -172,13 +176,13 @@ class TimeUtil:
 
     @staticmethod
     def get_timediff_str(diff):
-        t = ''
+        t_str = ''
         for timeunit, name_s, name_p in TimeUtil._time_units:
             if diff >= timeunit:
-                c = int(diff / timeunit)
-                diff -= c * timeunit
-                t += '%d %s ' % (c, name_s if c == 1 else name_p)
-        return t.rstrip()
+                coeff = int(diff / timeunit)
+                diff -= coeff * timeunit
+                t_str += '%d %s ' % (coeff, name_s if coeff == 1 else name_p)
+        return t_str.rstrip()
 
 
 class LocalChangeMonitor:
@@ -254,7 +258,8 @@ class LocalChangeMonitor:
         meta_path = self.options.meta_path()
         while not self.exiting:
             path = self.p.stdout.readline(4096).strip().decode(sys.getdefaultencoding())
-            if not path: break
+            if not path:
+                break
             try:
                 if path.startswith(meta_path):
                     continue
@@ -404,11 +409,13 @@ class RemoteChangeMonitor:
                 self.event.set()
 
             socks_to_read = [self.s_control_server] + [p.socket for p in self.peers]
-            if self.beacon_listen: socks_to_read += [self.s_server]
+            if self.beacon_listen:
+                socks_to_read += [self.s_server]
             socks_to_write = []
             socks_to_check_error = [p.socket for p in self.peers]
             for idx, p in enumerate(self.peers):
-                if p.buf: socks_to_write.append(p.socket)
+                if p.buf:
+                    socks_to_write.append(p.socket)
             peers_to_close = []
 
             if socks_to_read or socks_to_write:
@@ -620,16 +627,20 @@ class Kaleido:
         to_add = self.gu.call(['ls-files', '--modified', '--others', '-z'] + exclude_args + \
                               [self.options.working_copy_root], False)[1]
         for path in to_add.split('\0'):
-            if not path: continue
-            if os.path.isdir(path): continue
+            if not path:
+                continue
+            if os.path.isdir(path):
+                continue
             self.gu.call(['add', '--force', path], False)
 
         # find removed files
         to_rm = self.gu.call(['ls-files', '--deleted', '-z'] + exclude_args + \
                              [self.options.working_copy_root], False)[1]
         for path in to_rm.split('\0'):
-            if not path: continue
-            if os.path.isdir(path): continue
+            if not path:
+                continue
+            if os.path.isdir(path):
+                continue
             self.gu.call(['rm', '--cached', path], False)
 
     def _sync(self, sync_forever):
@@ -827,7 +838,7 @@ class Kaleido:
         self.gu.detect_working_copy_root()
         self.gu.set_common_args(self.gu.get_path_args())
 
-        for root, dirs, _ in os.walk(self.options.working_copy_root):
+        for root, dirs, _ in os.walk(path):
             if not os.path.exists(os.path.join(root, '.git')):
                 continue
             if os.path.exists(os.path.join(root, '.kaleido-git')):
@@ -852,7 +863,7 @@ class Kaleido:
         self.gu.detect_working_copy_root()
         self.gu.set_common_args(self.gu.get_path_args())
 
-        for root, dirs, _ in os.walk(self.options.working_copy_root):
+        for root, dirs, _ in os.walk(path):
             if not os.path.exists(os.path.join(root, '.git')):
                 continue
             if not os.path.exists(os.path.join(root, '.kaleido-git')):
