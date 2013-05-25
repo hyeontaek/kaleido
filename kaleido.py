@@ -521,6 +521,7 @@ class Kaleido:
                       '--message=', '--allow-empty-message', '--allow-empty'])
         meta_path = self.options.meta_path()
         open(os.path.join(meta_path, 'info', 'exclude'), 'at').write(self.options.meta + '\n')
+        open(os.path.join(meta_path, 'info', 'exclude'), 'at').write('.git' + '\n')
         open(os.path.join(meta_path, 'git-daemon-export-ok'), 'wt')
         open(os.path.join(meta_path, 'inbox-id'), 'wt').write(inbox_id + '\n')
         return True
@@ -539,6 +540,7 @@ class Kaleido:
         self.gu.call(['config', 'remote.origin.url', url])
         meta_path = self.options.meta_path()
         open(os.path.join(meta_path, 'info', 'exclude'), 'at').write(self.options.meta + '\n')
+        open(os.path.join(meta_path, 'info', 'exclude'), 'at').write('.git' + '\n')
         open(os.path.join(meta_path, 'git-daemon-export-ok'), 'wt')
         open(os.path.join(meta_path, 'inbox-id'), 'wt').write(inbox_id + '\n')
         self.gu.call(['checkout'])
@@ -604,29 +606,31 @@ class Kaleido:
 
     def _add_changes(self):
         # this function basically does the following, except
-        #   it only uses .kaleido/info/exclude to ignore files;
-        #   ignore all git submodules (by ignoring directories)
+        #   it uses .kaleido-ignore to ignore files, not .gitignore files;
+        #   ignore all git submodules (by ignoring all directories when adding/removing)
         #self.gu.call(['add', '--all'], False)
 
+        info_exclude_path = os.path.join(self.options.working_copy_root, '.kaleido/info/exclude')
+        exclude_args = ['--exclude=.kaleido', '--exclude=.git', '--exclude-from=' + info_exclude_path]
+        kaleido_ignore_path = os.path.join(self.options.working_copy_root, '.kaleido-ignore')
+        if os.path.exists(kaleido_ignore_path):
+            exclude_args.append('--exclude-from=' + kaleido_ignore_path)
+
         # find new or modified files
-        to_add = self.gu.call(['ls-files', '--modified', '--others', '-z',
-                               '--exclude-from=' + \
-                               os.path.join(self.options.working_copy_root, '.kaleido/info/exclude'),
-                               self.options.working_copy_root], False)[1]
+        to_add = self.gu.call(['ls-files', '--modified', '--others', '-z'] + exclude_args + \
+                              [self.options.working_copy_root], False)[1]
         for path in to_add.split('\0'):
             if not path: continue
-            if not os.path.isdir(path):
-                self.gu.call(['add', '--force', path], False)
+            if os.path.isdir(path): continue
+            self.gu.call(['add', '--force', path], False)
 
         # find removed files
-        to_rm = self.gu.call(['ls-files', '--deleted', '-z',
-                              '--exclude-from=' + \
-                              os.path.join(self.options.working_copy_root, '.kaleido/info/exclude'),
-                              self.options.working_copy_root], False)[1]
+        to_rm = self.gu.call(['ls-files', '--deleted', '-z'] + exclude_args + \
+                             [self.options.working_copy_root], False)[1]
         for path in to_rm.split('\0'):
             if not path: continue
-            if not os.path.isdir(path):
-                self.gu.call(['rm', '--cached', path], False)
+            if os.path.isdir(path): continue
+            self.gu.call(['rm', '--cached', path], False)
 
     def _sync(self, sync_forever):
         self.gu.detect_working_copy_root()
@@ -782,6 +786,9 @@ class Kaleido:
         return True
 
     def link_kaleido_git(self, path):
+        if not platform.platform().startswith('Linux') and not platform.platform().startswith('Windows'):
+            raise Exception('not supported platform')
+
         native_git_path = os.path.join(path, '.git')
         fixed_git_path = os.path.join(path, '.kaleido-git')
 
@@ -791,6 +798,9 @@ class Kaleido:
             subprocess.call(['cmd', '/c', 'mklink', '/j', native_git_path, fixed_git_path])
 
     def unlink_kaleido_git(self, path):
+        if not platform.platform().startswith('Linux') and not platform.platform().startswith('Windows'):
+            raise Exception('not supported platform')
+
         native_git_path = os.path.join(path, '.git')
 
         if platform.platform().startswith('Linux'):
@@ -814,9 +824,6 @@ class Kaleido:
             pass
 
     def track_git(self, path):
-        if not platform.platform().startswith('Linux') and not platform.platform().startswith('Windows'):
-            raise Exception('not supported platform')
-
         self.gu.detect_working_copy_root()
         self.gu.set_common_args(self.gu.get_path_args())
 
@@ -824,32 +831,24 @@ class Kaleido:
             if not os.path.exists(os.path.join(root, '.git')):
                 continue
             if os.path.exists(os.path.join(root, '.kaleido-git')):
+                # already tracking
                 continue
 
+            # do not recurse into it
             dirs.remove('.git')
 
-            path = root
-            native_git_path = os.path.join(path, '.git')
-            fixed_git_path = os.path.join(path, '.kaleido-git')
+            native_git_path = os.path.join(root, '.git')
+            fixed_git_path = os.path.join(root, '.kaleido-git')
 
             # rename .git to ours so that git does not think this path as a submodule
             os.rename(native_git_path, fixed_git_path)
 
-            # remove any 'commit' entry that may exist
-            #self.gu.call(['rm', '--cached', '-r', '--ignore-unmatch', path], False)
-            #self.gu.call(['commit',
-            #              '--author=%s <%s@%s>' % (getpass.getuser(), getpass.getuser(), platform.node()),
-            #              '--message=', '--allow-empty-message'], False)
-
             # add a symlink from .git to .kaleido-git to make git continue to work
-            self.link_kaleido_git(path)
+            self.link_kaleido_git(root)
 
         return True
 
     def untrack_git(self, path):
-        if not platform.platform().startswith('Linux') and not platform.platform().startswith('Windows'):
-            raise Exception('not supported platform')
-
         self.gu.detect_working_copy_root()
         self.gu.set_common_args(self.gu.get_path_args())
 
@@ -857,24 +856,20 @@ class Kaleido:
             if not os.path.exists(os.path.join(root, '.git')):
                 continue
             if not os.path.exists(os.path.join(root, '.kaleido-git')):
+                # not tracking
                 continue
 
+            # do not recurse into them
             dirs.remove('.git')
             dirs.remove('.kaleido-git')
 
-            path = root
-            native_git_path = os.path.join(path, '.git')
-            fixed_git_path = os.path.join(path, '.kaleido-git')
-
-            # remove previous entries in kaleido repository
-            #self.gu.call(['rm', '--cached', '-r', '--ignore-unmatch', path], False)
-            #self.gu.call(['commit',
-            #              '--author=%s <%s@%s>' % (getpass.getuser(), getpass.getuser(), platform.node()),
-            #              '--message=', '--allow-empty-message'], False)
+            native_git_path = os.path.join(root, '.git')
+            fixed_git_path = os.path.join(root, '.kaleido-git')
 
             # remove the symlink and restore the original .git directory name
-            self.unlink_kaleido_git(path)
+            self.unlink_kaleido_git(root)
 
+            # restore original .git name
             os.rename(fixed_git_path, native_git_path)
 
         return True
