@@ -183,6 +183,51 @@ class TimeUtil:
         return t_str.rstrip()
 
 
+class RestartableTimer:
+    def __init__(self, interval, function, args=None, kwargs=None):
+        self.interval = interval
+        self.function = function
+        if args != None:
+            self.args = args
+        else:
+            self.args = ()
+        if kwargs != None:
+            self.kwargs = kwargs
+        else:
+            self.kwargs = {}
+        self.fire_at = -1
+        self.good_to_start = threading.Event()
+        self.thread = threading.Thread(target=self._main)
+        self.thread.daemon = True
+        self.thread.start()
+
+    def start(self):
+        #print('timer start')
+        now = time.time()
+        self.fire_at = now + self.interval
+        self.good_to_start.set()
+
+    def cancel(self):
+        self.fire_at = -1
+        self.good_to_start.clear()
+
+    def _main(self):
+        while True:
+            self.good_to_start.wait()
+            while True:
+                fire_at = self.fire_at
+                now = time.time()
+                if fire_at > now:
+                    time.sleep(fire_at - now)
+                else:
+                    break
+            self.good_to_start.clear()
+            if fire_at >= 0:
+                #print('timer fired')
+                self.good_to_start.clear()
+                self.function(*self.args, **self.kwargs)
+
+
 class LocalChangeMonitor:
     def __init__(self, options, event):
         self.options = options
@@ -194,6 +239,7 @@ class LocalChangeMonitor:
         self.proc = None
         self.thread = None
         self.handle = None
+        self.flag_set_timer = RestartableTimer(5, self._on_flag_set_timer)
 
     def __del__(self):
         if self.running:
@@ -256,6 +302,10 @@ class LocalChangeMonitor:
                 # the following is skipped for faster termination
                 #self.thread.join()
 
+    def _on_flag_set_timer(self):
+        self.flag = True
+        self.event.set()
+
     def _inotifywait_handler(self):
         meta_path = self.options.meta_path()
         while not self.exiting:
@@ -268,8 +318,7 @@ class LocalChangeMonitor:
                 if os.path.basename(path) == '.git':
                     continue
                 #print(self.options.msg_prefix() + path)
-                self.flag = True
-                self.event.set()
+                self.flag_set_timer.start()
             except ValueError:
                 pass
         self.proc.stdout.close()
@@ -292,8 +341,7 @@ class LocalChangeMonitor:
                 if os.path.basename(path) == '.git':
                     continue
                 #print(self.options.msg_prefix() + path)
-                self.flag = True
-                self.event.set()
+                self.flag_set_timer.start()
                 break
 
 
@@ -404,7 +452,6 @@ class RemoteChangeMonitor:
                 last_connect_attempt = now
                 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 sock.setblocking(0)
-                sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
                 sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
                 print(self.options.msg_prefix() + 'connecting to beacon server %s:%d' % self.beacon_address)
                 try:
@@ -442,7 +489,6 @@ class RemoteChangeMonitor:
                     print(self.options.msg_prefix() + 'new peer from %s:%d' % addr)
                     try:
                         s_new_client.setblocking(0)
-                        s_new_client.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
                         s_new_client.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
                     except socket.error:
                         pass
@@ -942,7 +988,7 @@ def print_help():
     print('  sync                Sync once')
     print('  sync-forever        Sync continuously')
     print('  track-git PATH      Include git repositories under PATH for sync')
-    print('  untrack-git PATH    Exclude git repositories under PATH fur sync')
+    print('  untrack-git PATH    Exclude git repositories under PATH for sync')
     print('  GIT-COMMAND         Execute a custom git command')
 
 def main():
