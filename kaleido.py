@@ -239,7 +239,7 @@ class LocalChangeMonitor:
         self.proc = None
         self.thread = None
         self.handle = None
-        self.flag_set_timer = RestartableTimer(5, self._on_flag_set_timer)
+        self.flag_set_timer = RestartableTimer(0.1, self._on_flag_set_timer)
 
     def __del__(self):
         if self.running:
@@ -418,12 +418,13 @@ class RemoteChangeMonitor:
         self.running = False
 
     class _Peer:
-        def __init__(self, sock, addr, buf, last_recv, last_send):
+        def __init__(self, sock, addr, buf, last_recv, last_send, connecting):
             self.sock = sock 
             self.addr = addr
             self.buf = buf
             self.last_recv = last_recv
             self.last_send = last_send
+            self.connecting = connecting
 
     def _find_peer_idx(self, sock):
         for idx, peer in enumerate(self.peers):
@@ -458,7 +459,7 @@ class RemoteChangeMonitor:
                     sock.connect(self.beacon_address)
                 except socket.error:
                     pass
-                self.peers.append(self._Peer(sock, self.beacon_address, b'', now, now))
+                self.peers.append(self._Peer(sock, self.beacon_address, b'k', now, now, True))
                 self.flag = True    # assume changes because we may have missed signals
                 self.event.set()
 
@@ -486,13 +487,13 @@ class RemoteChangeMonitor:
                 elif self.beacon_listen and sock == self.sock_server:
                     s_new_client, addr = self.sock_server.accept()
                     now = time.time()
-                    print(self.options.msg_prefix() + 'new peer from %s:%d' % addr)
+                    print(self.options.msg_prefix() + 'connection from %s:%d established' % addr)
                     try:
                         s_new_client.setblocking(0)
                         s_new_client.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
                     except socket.error:
                         pass
-                    self.peers.append(self._Peer(s_new_client, addr, b'', now, now))
+                    self.peers.append(self._Peer(s_new_client, addr, b'k', now, now, False))
                 else:
                     idx = self._find_peer_idx(sock)
                     assert idx != -1
@@ -507,6 +508,9 @@ class RemoteChangeMonitor:
                         # keepalive
                         #print(self.options.msg_prefix() + 'keepalive from %s:%d' % peer.addr)
                         pass
+                        if peer.connecting:
+                            print(self.options.msg_prefix() + 'connection to %s:%d established' % peer.addr)
+                            peer.connecting = False
                     elif msg == b'c':
                         # changes
                         self.flag = True
