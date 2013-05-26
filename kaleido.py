@@ -506,11 +506,12 @@ class RemoteChangeMonitor:
                         msg = None
                     if msg == b'k':
                         # keepalive
-                        #print(self.options.msg_prefix() + 'keepalive from %s:%d' % peer.addr)
-                        pass
                         if peer.connecting:
-                            print(self.options.msg_prefix() + 'connection to %s:%d established' % peer.addr)
                             peer.connecting = False
+                            print(self.options.msg_prefix() + 'connection to %s:%d established' % peer.addr)
+                        else:
+                            #print(self.options.msg_prefix() + 'keepalive from %s:%d' % peer.addr)
+                            pass
                     elif msg == b'c':
                         # changes
                         self.flag = True
