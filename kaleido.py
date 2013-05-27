@@ -504,14 +504,13 @@ class RemoteChangeMonitor:
                             peer.last_recv = now
                     except socket.error:
                         msg = None
+                    if msg and peer.connecting:
+                        peer.connecting = False
+                        print(self.options.msg_prefix() + 'connection to %s:%d established' % peer.addr)
                     if msg == b'k':
                         # keepalive
-                        if peer.connecting:
-                            peer.connecting = False
-                            print(self.options.msg_prefix() + 'connection to %s:%d established' % peer.addr)
-                        else:
-                            #print(self.options.msg_prefix() + 'keepalive from %s:%d' % peer.addr)
-                            pass
+                        #print(self.options.msg_prefix() + 'keepalive from %s:%d' % peer.addr)
+                        pass
                     elif msg == b'c':
                         # changes
                         self.flag = True
