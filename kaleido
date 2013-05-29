@@ -3,6 +3,7 @@
 PYTHON=`which python3`
 PYTHON_ARGS=
 if [ -z "${PYTHON}" ]; then
+	# TODO: just detect the platform
 	PYTHON="py.exe"
 	PYTHON_ARGS="-3"
 fi
