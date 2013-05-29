@@ -676,12 +676,13 @@ class Kaleido:
 
     def _add_changes(self):
         # this function basically does the following, except
-        #   it uses .kaleido-ignore to ignore files, not .gitignore files;
+        #   it uses .kaleido-ignore to ignore files, not .gitignore files (this is disabled for now);
         #   ignore all git submodules (by ignoring all directories when adding/removing)
         #self.gu.call(['add', '--all'], False)
 
         info_exclude_path = os.path.join(self.options.working_copy_root, '.kaleido/info/exclude')
         exclude_args = ['--exclude=.kaleido', '--exclude=.git', '--exclude-from=' + info_exclude_path]
+        exclude_args += ['--exclude-standard']
         kaleido_ignore_path = os.path.join(self.options.working_copy_root, '.kaleido-ignore')
         if os.path.exists(kaleido_ignore_path):
             exclude_args.append('--exclude-from=' + kaleido_ignore_path)
