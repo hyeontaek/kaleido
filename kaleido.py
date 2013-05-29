@@ -684,7 +684,7 @@ class Kaleido:
         info_exclude_path = os.path.join(self.options.working_copy_root, '.kaleido/info/exclude')
         exclude_args = ['--exclude=.kaleido', '--exclude=.git', '--exclude-from=' + info_exclude_path]
         if not self.options.ignore_git_ignore:
-            exclude_args += ['--exclude-standard']
+            exclude_args.append('--exclude-standard')
         kaleido_ignore_path = os.path.join(self.options.working_copy_root, '.kaleido-ignore')
         if os.path.exists(kaleido_ignore_path):
             exclude_args.append('--exclude-from=' + kaleido_ignore_path)
