@@ -47,6 +47,7 @@ class Options:
         self.beacon_timeout = 60.
         self.reconnect_interval = 60.
         self.control_address = ('127.0.0.1', 0)
+        self.ignore_git_ignore = False
         self.allow_destructive = False
         self.command_after_sync = None
         self.quiet = False
@@ -682,7 +683,8 @@ class Kaleido:
 
         info_exclude_path = os.path.join(self.options.working_copy_root, '.kaleido/info/exclude')
         exclude_args = ['--exclude=.kaleido', '--exclude=.git', '--exclude-from=' + info_exclude_path]
-        exclude_args += ['--exclude-standard']
+        if not self.options.ignore_git_ignore:
+            exclude_args += ['--exclude-standard']
         kaleido_ignore_path = os.path.join(self.options.working_copy_root, '.kaleido-ignore')
         if os.path.exists(kaleido_ignore_path):
             exclude_args.append('--exclude-from=' + kaleido_ignore_path)
@@ -980,6 +982,7 @@ def print_help():
     print('  -T INTERVAL         Set the minimum interval for beacon reconnection [default: %s sec]' % \
           options.reconnect_interval)
     print('  -y ADDRESS:PORT     Specify the internal control UDP address [default: %s:%d]' % options.control_address)
+    print('  -i                  Ignore standard git ignore files')
     print('  -D                  Allow destructive operations')
     print('  -c COMMAND          Run a user command after sync')
     print('  -q                  Be less verbose')
@@ -1047,6 +1050,9 @@ def main():
             address, port = args[1].split(':', 1)
             options.control_address = (address, int(port))
             args = args[2:]
+        elif args[0] == '-i':
+            options.ignore_git_ignore = True
+            args = args[1:]
         elif args[0] == '-D':
             options.allow_destructive = True
             args = args[1:]
