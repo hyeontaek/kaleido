@@ -316,6 +316,8 @@ class LocalChangeMonitor:
             try:
                 if path.startswith(meta_path):
                     continue
+                if os.path.isdir(path):
+                    continue
                 if os.path.basename(path) == '.git':
                     continue
                 #print(self.options.msg_prefix() + path)
@@ -338,6 +340,8 @@ class LocalChangeMonitor:
             for _, name in results:
                 path = os.path.join(self.options.working_copy_root, name)
                 if path.startswith(meta_path):
+                    continue
+                if os.path.isdir(path):
                     continue
                 if os.path.basename(path) == '.git':
                     continue
