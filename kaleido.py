@@ -630,6 +630,7 @@ class Kaleido:
                 time.sleep(60)
         finally:
             remote_change_monitor.stop()
+        return True
 
     def serve(self, address, port):
         self.gu.detect_working_copy_root()
@@ -668,10 +669,10 @@ class Kaleido:
         return True
 
     def sync(self):
-        self._sync(False)
+        return self._sync(False)
 
     def sync_forever(self):
-        self._sync(True)
+        return self._sync(True)
 
     _no_change_notifications = [
             (24 * 60 * 60), (12 * 60 * 60), ( 6 * 60 * 60),
@@ -1018,99 +1019,99 @@ def main():
             return 1
         elif args[0] == '-g':
             options.git = args[1]
-            args = args[2:]
+            del args[0:2]
         elif args[0] == '-m':
             options.meta = args[1]
-            args = args[2:]
+            del args[0:2]
         elif args[0] == '-w':
             options.working_copy = args[1]
-            args = args[2:]
+            del args[0:2]
         elif args[0] == '-i':
             options.sync_interval = float(args[1])
-            args = args[2:]
+            del args[0:2]
         elif args[0] == '-p':
             options.local_polling = True
-            args = args[1:]
+            del args[0:1]
         elif args[0] == '-P':
             options.remote_polling = True
-            args = args[1:]
+            del args[0:1]
         elif args[0] == '-b':
             address, port = args[1].split(':', 1)
             options.beacon_address = (address, int(port))
-            args = args[2:]
+            del args[0:2]
         elif args[0] == '-B':
             options.beacon_listen = True
-            args = args[1:]
+            del args[0:1]
         elif args[0] == '-t':
             options.beacon_timeout = float(args[1])
-            args = args[2:]
+            del args[0:2]
         elif args[0] == '-k':
             options.beacon_keepalive = float(args[1])
-            args = args[2:]
+            del args[0:2]
         elif args[0] == '-T':
             options.reconnect_interval = float(args[1])
-            args = args[2:]
+            del args[0:2]
         elif args[0] == '-y':
             address, port = args[1].split(':', 1)
             options.control_address = (address, int(port))
-            args = args[2:]
+            del args[0:2]
         elif args[0] == '-i':
             options.ignore_git_ignore = True
-            args = args[1:]
+            del args[0:1]
         elif args[0] == '-D':
             options.allow_destructive = True
-            args = args[1:]
+            del args[0:1]
         elif args[0] == '-c':
             options.command_after_sync = args[1]
-            args = args[2:]
+            del args[0:2]
         elif args[0] == '-q':
             options.quiet = True
-            args = args[1:]
+            del args[0:1]
         elif args[0] == '--':
-            args = args[1:]
+            del args[0:1]
             break
         else:
             break
 
     command = args[0]
-    args = args[1:]
+    del args[0:1]
 
     if command == 'init':
         if os.path.exists(os.path.join(options.working_copy, options.meta)):
             raise Exception('%s directory already exists' % options.meta)
-        ret = True if Kaleido(options).init() else False
+        ret = 0 if Kaleido(options).init() else 1
     elif command == 'clone':
         if len(args) < 1:
             raise Exception('too few arguments')
         elif os.path.exists(os.path.join(options.working_copy, options.meta)):
             raise Exception('%s directory already exists' % options.meta)
         path = args[0]
-        ret = True if Kaleido(options).clone(path) else False
+        ret = 0 if Kaleido(options).clone(path) else 1
     elif command == 'serve':
         if len(args) < 1:
             raise Exception('too few arguments')
         address, port = args[0].split(':', 1)
-        ret = True if Kaleido(options).serve(address, int(port)) else False
+        ret = 0 if Kaleido(options).serve(address, int(port)) else 1
     elif command == 'beacon':
         options.beacon_listen = True
         options.working_copy = 'beacon'
-        ret = True if Kaleido(options).beacon() else False
+        ret = 0 if Kaleido(options).beacon() else 1
     elif command == 'squash':
-        ret = True if Kaleido(options).squash() else False
+        ret = 0 if Kaleido(options).squash() else 1
     elif command == 'sync':
-        ret = True if Kaleido(options).sync() else False
+        ret = 0 if Kaleido(options).sync() else 1
     elif command == 'sync-forever':
-        ret = True if Kaleido(options).sync_forever() else False
+        ret = 0 if Kaleido(options).sync_forever() else 1
     elif command == 'track-git':
         if len(args) < 1:
             raise Exception('too few arguments')
         path = args[0]
-        ret = True if Kaleido(options).track_git(path) else False
+        ret = 0 if Kaleido(options).track_git(path) else 1
     elif command == 'untrack-git':
         if len(args) < 1:
             raise Exception('too few arguments')
         path = args[0]
-        ret = True if Kaleido(options).untrack_git(path) else False
+        ret = 0 if Kaleido(options).untrack_git(path) else 1
     else:
         ret = Kaleido(options).git_command([command] + args)
 
