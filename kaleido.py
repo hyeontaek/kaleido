@@ -967,7 +967,7 @@ def print_help():
           '{ init | clone REPOSITORY | beacon | serve ADDRESS:PORT | ' \
             'squash | sync | sync-forever | ' \
             'track-git PATH | untrack-git PATH | ' \
-            'GIT-COMMAND }' % sys.argv[0])
+            '[--] GIT-COMMAND }' % sys.argv[0])
     print()
     print('Options:')
     print('  -h                  Show this help message and exit')
@@ -1066,6 +1066,9 @@ def main():
         elif args[0] == '-q':
             options.quiet = True
             args = args[1:]
+        elif args[0] == '--':
+            args = args[1:]
+            break
         else:
             break
 
