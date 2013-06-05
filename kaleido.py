@@ -100,9 +100,11 @@ class GitUtil:
         tee_stderr = None if self.options.quiet else sys.stderr
         threads.append(threading.Thread(target=self._copy_output, args=(proc.stdout, stdout_buf, tee_stdout)))
         threads.append(threading.Thread(target=self._copy_output, args=(proc.stderr, stderr_buf, tee_stderr)))
-        list([thread.start() for thread in threads])
+        for thread in threads:
+            thread.start()
         ret = proc.wait()
-        list([thread.join() for thread in threads])
+        for thread in threads:
+            thread.join()
 
         if must_succeed and ret != 0:
             raise RuntimeError('git returned %d' % ret)
@@ -188,14 +190,8 @@ class RestartableTimer:
     def __init__(self, interval, function, args=None, kwargs=None):
         self.interval = interval
         self.function = function
-        if args != None:
-            self.args = args
-        else:
-            self.args = ()
-        if kwargs != None:
-            self.kwargs = kwargs
-        else:
-            self.kwargs = {}
+        self.args = args if args != None else ()
+        self.kwargs = kwargs if kwargs != None else {}
         self.fire_at = -1
         self.good_to_start = threading.Event()
         self.thread = threading.Thread(target=self._main)
