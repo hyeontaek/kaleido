@@ -679,9 +679,9 @@ class Kaleido:
         ]
 
     def _add_changes(self):
-        # this function basically does the following, except
-        #   it uses .kaleido-ignore to ignore files, not .gitignore files (this is disabled for now);
-        #   ignore all git submodules (by ignoring all directories when adding/removing)
+        # this function basically does git add --all, except
+        #   it uses .kaleido-ignore to ignore files in addition to .gitignore files
+        #   ignore all git submodules (by avoid using directory names when adding/removing)
         #self.gu.call(['add', '--all'], False)
 
         info_exclude_path = os.path.join(self.options.working_copy_root, '.kaleido/info/exclude')
@@ -810,7 +810,7 @@ class Kaleido:
                         changed = True
 
                 if local_op or remote_op:
-                    self.try_to_repair_keleido_git_links()
+                    self.repair_keleido_git_links()
 
                 # push if there are any changes or in the first sync trial (the last run may have missed a push)
                 if changed or first_sync:
@@ -888,7 +888,7 @@ class Kaleido:
         elif platform.platform().startswith('Windows'):
             os.rmdir(native_git_path)
 
-    def try_to_repair_keleido_git_links(self):
+    def repair_keleido_git_links(self):
         try:
             for root, dirs, _ in os.walk(self.options.working_copy_root):
                 if not os.path.exists(os.path.join(root, '.kaleido-git')):
@@ -926,6 +926,11 @@ class Kaleido:
             # add a symlink from .git to .kaleido-git to make git continue to work
             self.link_kaleido_git(root)
 
+            # add .kaleido-git
+            # assuming there is no other git repositories in the directory (unlikely)
+            # once this is done, the working copy will be tracked even though it has .git symlink
+            self.gu.call(['add', '--all', '--force', fixed_git_path])
+
         return True
 
     def untrack_git(self, path):
@@ -951,6 +956,10 @@ class Kaleido:
 
             # restore original .git name
             os.rename(fixed_git_path, native_git_path)
+
+            # exclude all files of .kaledo-git as well as its working copy
+            #self.gu.call(['rm', '-r', '--cached', fixed_git_path])
+            self.gu.call(['rm', '-r', '--cached', root])
 
         return True
 
