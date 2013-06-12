@@ -258,7 +258,7 @@ class LocalChangeMonitor:
             if platform.platform().startswith('Linux'):
                 print(self.options.msg_prefix() + 'monitoring local changes in %s' % self.options.working_copy_root)
                 self.proc = subprocess.Popen(['inotifywait', '--monitor', '--recursive', '--quiet',
-                                              '-e', 'modify', '-e', 'attrib', '-e', 'close_write',
+                                              '-e', 'attrib', '-e', 'close_write',
                                               '-e', 'move', '-e', 'create', '-e', 'delete',
                                               '--format', '%w%f',
                                               self.options.working_copy_root],
