@@ -587,7 +587,6 @@ class Kaleido:
         self.gu.detect_working_copy_root()
         self.gu.set_common_args(self.gu.get_path_args())
         self.gu.call(['config', 'core.bare', 'false'])
-        self.gu.call(['config', 'core.hideDotFiles', 'false'])
         self.gu.call(['config', 'gc.auto', '0'])
         self.gu.call(['commit', '--author=%s <%s@%s>' % (getpass.getuser(), getpass.getuser(), platform.node()),
                       '--message=', '--allow-empty-message', '--allow-empty'])
@@ -608,7 +607,6 @@ class Kaleido:
         self.gu.detect_working_copy_root()
         self.gu.set_common_args(self.gu.get_path_args())
         self.gu.call(['config', 'core.bare', 'false'])
-        self.gu.call(['config', 'core.hideDotFiles', 'false'])
         self.gu.call(['config', 'gc.auto', '0'])
         self.gu.call(['config', 'remote.origin.url', url])
         meta_path = self.options.meta_path()
@@ -655,7 +653,8 @@ class Kaleido:
         self.gu.call(['branch', 'new_master', tree_id])
         self.gu.call(['checkout', 'new_master'])
         self.gu.call(['branch', '-M', 'new_master', 'master'])
-        self.gu.call(['gc', '--aggressive'], False)
+        self.gu.call(['repack', '-A', '-d'])
+        self.gu.call(['prune'])
 
         event = threading.Event()
         remote_change_monitor = RemoteChangeMonitor(self.options, event)
@@ -797,7 +796,8 @@ class Kaleido:
                                 if succeeding:
                                     succeeding = self.gu.call(['branch', '-M', 'new_master', 'master'], False)[0] == 0
                                 if succeeding:
-                                    self.gu.call(['gc', '--aggressive'], False)
+                                    self.gu.call(['repack', '-A', '-d'], False)
+                                    self.gu.call(['prune'], False)
                                 if not succeeding:
                                     print(self.options.msg_prefix() + 'failed to propagate squash')
                         else:
