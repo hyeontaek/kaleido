@@ -584,7 +584,7 @@ class Kaleido:
         self.gu.call(['config', 'gc.auto', '0'])
         self.gu.call(['config', 'gc.autopacklimit', '0'])
         self.gu.call(['config', 'receive.autogc', 'false'])
-        self.gu.call(['config', 'transfer.unpackLimit', '1048576'])
+        self.gu.call(['config', 'transfer.unpackLimit', '0'])
 
     def init(self):
         inbox_id = '%d_%d' % (time.time(), random.randint(0, 999999))
