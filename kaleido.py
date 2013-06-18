@@ -580,6 +580,12 @@ class Kaleido:
         self.options = options
         self.gu = GitUtil(self.options)
 
+    def _reset_config(self):
+        self.gu.call(['config', 'gc.auto', '0'])
+        self.gu.call(['config', 'gc.autopacklimit', '0'])
+        self.gu.call(['config', 'receive.autogc', 'false'])
+        self.gu.call(['config', 'transfer.unpackLimit', '1048576'])
+
     def init(self):
         inbox_id = '%d_%d' % (time.time(), random.randint(0, 999999))
         self.gu.set_common_args([])
@@ -587,7 +593,7 @@ class Kaleido:
         self.gu.detect_working_copy_root()
         self.gu.set_common_args(self.gu.get_path_args())
         self.gu.call(['config', 'core.bare', 'false'])
-        self.gu.call(['config', 'gc.auto', '0'])
+        self._reset_config()
         self.gu.call(['commit', '--author=%s <%s@%s>' % (getpass.getuser(), getpass.getuser(), platform.node()),
                       '--message=', '--allow-empty-message', '--allow-empty'])
         meta_path = self.options.meta_path()
@@ -607,7 +613,7 @@ class Kaleido:
         self.gu.detect_working_copy_root()
         self.gu.set_common_args(self.gu.get_path_args())
         self.gu.call(['config', 'core.bare', 'false'])
-        self.gu.call(['config', 'gc.auto', '0'])
+        self._reset_config()
         self.gu.call(['config', 'remote.origin.url', url])
         meta_path = self.options.meta_path()
         open(os.path.join(meta_path, 'info', 'exclude'), 'at').write(self.options.meta + '\n')
@@ -616,6 +622,11 @@ class Kaleido:
         open(os.path.join(meta_path, 'inbox-id'), 'wt').write(inbox_id + '\n')
         self.gu.call(['checkout'])
         return True
+
+    def reset_config(self):
+        self.gu.detect_working_copy_root()
+        self.gu.set_common_args(self.gu.get_path_args())
+        self._reset_config()
 
     def beacon(self):
         event = threading.Event()
@@ -972,7 +983,7 @@ class Kaleido:
 def print_help():
     options = Options()
     print('usage: %s [OPTIONS] ' \
-          '{ init | clone REPOSITORY | beacon | serve ADDRESS:PORT | ' \
+          '{ init | clone REPOSITORY | reset-config | beacon | serve ADDRESS:PORT | ' \
             'squash | sync | sync-forever | ' \
             'track-git PATH | untrack-git PATH | ' \
             '[--] GIT-COMMAND }' % sys.argv[0])
@@ -1002,6 +1013,7 @@ def print_help():
     print('Commands:')
     print('  init                Initialize a new kaleido sync')
     print('  clone REPOSITORY    Clone the existing kaleido sync')
+    print('  reset-config        Reset the git config of the kaleido sync')
     print('  beacon              Run the beacon server')
     print('  serve ADDRESS:PORT  Run the git daemon')
     print('  squash              Purge the sync history')
@@ -1094,6 +1106,8 @@ def main():
             raise Exception('%s directory already exists' % options.meta)
         path = args[0]
         ret = 0 if Kaleido(options).clone(path) else 1
+    elif command == 'reset-config':
+        ret = 0 if Kaleido(options).reset_config() else 1
     elif command == 'serve':
         if len(args) < 1:
             raise Exception('too few arguments')
