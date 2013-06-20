@@ -673,7 +673,7 @@ class Kaleido:
         self.gu.call(['branch', 'new_master', tree_id])
         self.gu.call(['checkout', 'new_master'])
         self.gu.call(['branch', '-M', 'new_master', 'master'])
-        self.gu.call(['repack', '-A', '-d'])
+        #self.gu.call(['repack', '-A', '-d'])
         self.gu.call(['prune'])
 
         event = threading.Event()
@@ -722,9 +722,9 @@ class Kaleido:
             self.gu.call(['add', '--force', path], False)
 
             # commit local changes to local master
-            self.gu.call(['commit',
-                          '--author=%s <%s@%s>' % (getpass.getuser(), getpass.getuser(), platform.node()),
-                          '--message=', '--allow-empty-message'], False)
+            # self.gu.call(['commit',
+            #               '--author=%s <%s@%s>' % (getpass.getuser(), getpass.getuser(), platform.node()),
+            #               '--message=', '--allow-empty-message'], False)
 
         # find removed files
         to_rm = self.gu.call(['ls-files', '--deleted', '-z'] + exclude_args + \
@@ -737,9 +737,9 @@ class Kaleido:
             self.gu.call(['rm', '--cached', path], False)
 
             # commit local changes to local master
-            self.gu.call(['commit',
-                          '--author=%s <%s@%s>' % (getpass.getuser(), getpass.getuser(), platform.node()),
-                          '--message=', '--allow-empty-message'], False)
+            # self.gu.call(['commit',
+            #               '--author=%s <%s@%s>' % (getpass.getuser(), getpass.getuser(), platform.node()),
+            #               '--message=', '--allow-empty-message'], False)
 
     def _sync(self, sync_forever):
         self.gu.detect_working_copy_root()
@@ -808,10 +808,19 @@ class Kaleido:
                     for branch in self.gu.list_git_branches():
                         if not branch.startswith('sync_inbox_'):
                             continue
-                        has_common_ancestor = self.gu.call(['merge-base', 'master', branch], False)[0] == 0
+                        local_head = self.gu.call(['merge-base', 'master', 'master'], False)[1]
+                        remote_head = self.gu.call(['merge-base', branch, branch], False)[1]
+                        has_common_ancestor, common_ancestor = self.gu.call(['merge-base', 'master', branch], False)
                         if has_common_ancestor:
-                            # typical merge---merge local master with the origin
-                            self.gu.call(['merge', '--strategy=recursive'] + git_strategy_option + [branch], False)
+                            if remote_head == common_ancestor:
+                                # optimization; if the local master has the remote master as a common ancestor,
+                                # the remote master is just lagging behind and will catch up the local master
+                                # then, the local side just waits for the remote to pull more commits
+                            else:
+                                # typical merge---merge local master with the origin
+                                self.gu.call(['merge', '--strategy=recursive'] + git_strategy_option + [branch], False)
+                            # TODO: potential race condition; if the remote pushes a new head before the following,
+                            # the change notification may be ignored because no new branch is accessible
                             self.gu.call(['branch', '--delete', branch], False)
                         elif branch == 'sync_inbox_origin':
                             # the origin has been squashed; apply it locally
@@ -828,7 +837,7 @@ class Kaleido:
                                 if succeeding:
                                     succeeding = self.gu.call(['branch', '-M', 'new_master', 'master'], False)[0] == 0
                                 if succeeding:
-                                    self.gu.call(['repack', '-A', '-d'], False)
+                                    #self.gu.call(['repack', '-A', '-d'], False)
                                     self.gu.call(['prune'], False)
                                 if not succeeding:
                                     print(self.options.msg_prefix() + 'failed to propagate squash')
@@ -963,9 +972,9 @@ class Kaleido:
             self.gu.call(['add', os.path.join(fixed_git_path, 'index')])
 
             # commit local changes to local master
-            self.gu.call(['commit',
-                          '--author=%s <%s@%s>' % (getpass.getuser(), getpass.getuser(), platform.node()),
-                          '--message=', '--allow-empty-message'], False)
+            # self.gu.call(['commit',
+            #               '--author=%s <%s@%s>' % (getpass.getuser(), getpass.getuser(), platform.node()),
+            #               '--message=', '--allow-empty-message'], False)
 
         return True
 
@@ -999,9 +1008,10 @@ class Kaleido:
             # exclude all files of .kaleido-git as well as its working copy
             self.gu.call(['rm', '-r', '--cached', '--ignore-unmatch', root])
 
-            self.gu.call(['commit',
-                          '--author=%s <%s@%s>' % (getpass.getuser(), getpass.getuser(), platform.node()),
-                          '--message=', '--allow-empty-message'], False)
+            # commit local changes to local master
+            #self.gu.call(['commit',
+            #              '--author=%s <%s@%s>' % (getpass.getuser(), getpass.getuser(), platform.node()),
+            #              '--message=', '--allow-empty-message'], False)
         return True
 
     def git_command(self, args):
