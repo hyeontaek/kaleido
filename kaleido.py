@@ -581,12 +581,16 @@ class Kaleido:
         self.gu = GitUtil(self.options)
 
     def _reset_config(self):
+        # turn off cr/lf conversion
         self.gu.call(['config', 'core.autocrlf', 'false'])
+        # prevent automaic gc/packing
         self.gu.call(['config', 'gc.auto', '0'])
         self.gu.call(['config', 'gc.autopacklimit', '0'])
         self.gu.call(['config', 'receive.autogc', 'false'])
-        self.gu.call(['config', 'transfer.unpackLimit', '100'])
+        # avoid creating any large packs
         self.gu.call(['config', 'pack.packSizeLimit', '1m'])
+        # unpack (virtually) all packs; this applies to packs transferred and then transferred back via git push on multiple repositories
+        self.gu.call(['config', 'transfer.unpackLimit', '1000000000'])
 
     def init(self):
         inbox_id = '%d_%d' % (time.time(), random.randint(0, 999999))
