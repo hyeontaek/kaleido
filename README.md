@@ -24,7 +24,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 > $ git clone git@github.com:hyeontaek/kaleido.git
 
 * (Add the kaleido directory to PATH)
-* Requires: Python 3.3 or later
+* Requires: Python (3.3 or later)
 * Requires: git (1.7.0 or later)
 * Requires: inotify-tools (for Linux; 3.13 or later), pywin32 (for Windows; build 218 or later)
 * Lower versions may also work
