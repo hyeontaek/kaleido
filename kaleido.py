@@ -878,6 +878,10 @@ class Kaleido:
                 if changed or first_sync:
                     # push local master to remote sync_inbox_ID for remote merge
                     if has_origin:
+                        # TODO: if we have pulled some changes from the remote master, then this mailbox is probably
+                        #       lagging behind on the remote.  Because of this, pushing the local master to
+                        #       the remote can potentially send back all the changes we already received from
+                        #       the remote.  See if this is really happening and if we can fix/mitigate it
                         self.gu.call(['push', '--force', 'origin', 'master:sync_inbox_%s' % inbox_id], False)
 
                     # send beacon signal
