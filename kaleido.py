@@ -647,7 +647,6 @@ class Kaleido:
         open(os.path.join(meta_path, 'info', 'exclude'), 'at').write('.git' + '\n')
         open(os.path.join(meta_path, 'git-daemon-export-ok'), 'wt')
         open(os.path.join(meta_path, 'inbox-id'), 'wt').write(inbox_id + '\n')
-        self.gu.call(['repack', '-a', '-d'])    # to convert large pack files into small pack files bound to pack.packSizeLimit
         self.gu.call(['checkout'])
         return True
 
@@ -692,6 +691,7 @@ class Kaleido:
         self.gu.call(['branch', 'new_master', tree_id])
         self.gu.call(['checkout', 'new_master'])
         self.gu.call(['branch', '-M', 'new_master', 'master'])
+        # TODO: delete all non-master branch
         self.gu.call(['repack', '-A', '-d'])
         self.gu.call(['prune'])
 
@@ -848,6 +848,7 @@ class Kaleido:
                                 if succeeding:
                                     succeeding = self.gu.call(['branch', '-M', 'new_master', 'master'], False)[0] == 0
                                 if succeeding:
+                                    # TODO: delete all non-master branch
                                     self.gu.call(['repack', '-A', '-d'], False)
                                     self.gu.call(['prune'], False)
                                 if not succeeding:
