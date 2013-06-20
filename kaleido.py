@@ -545,8 +545,9 @@ class RemoteChangeMonitor:
                         self.event.set()
                         if self.beacon_listen:
                             # broadcast except the source
-                            print(self.options.msg_prefix() + \
-                                  'notifying %d peers for remote changes' % (len(self.peers) - 1))
+                            if not self.options.quiet:
+                                print(self.options.msg_prefix() + \
+                                      'notifying %d peers for remote changes' % (len(self.peers) - 1))
                             for peer2 in self.peers:
                                 if peer != peer2:
                                     peer2.buf = b'c'
@@ -574,7 +575,8 @@ class RemoteChangeMonitor:
 
             if self.need_to_send_signal:
                 # broadcast
-                print(self.options.msg_prefix() + 'notifying %d peers for local changes' % len(self.peers))
+                if not self.options.quiet:
+                    print(self.options.msg_prefix() + 'notifying %d peers for local changes' % len(self.peers))
                 for peer in self.peers:
                     peer.buf = b'c'
                     peer.last_send = now
