@@ -585,7 +585,7 @@ class Kaleido:
         self.gu.call(['config', 'gc.auto', '0'])
         self.gu.call(['config', 'gc.autopacklimit', '0'])
         self.gu.call(['config', 'receive.autogc', 'false'])
-        self.gu.call(['config', 'transfer.unpackLimit', '0'])
+        self.gu.call(['config', 'transfer.unpackLimit', '100'])
 
     def init(self):
         inbox_id = '%d_%d' % (time.time(), random.randint(0, 999999))
@@ -713,6 +713,7 @@ class Kaleido:
                 continue
             self.gu.call(['add', '--force', path], False)
 
+            # commit one file to avoid using a pack file of a large number of files
             self.gu.call(['commit',
                           '--author=%s <%s@%s>' % (getpass.getuser(), getpass.getuser(), platform.node()),
                           '--message=', '--allow-empty-message'], False)
@@ -727,6 +728,7 @@ class Kaleido:
                 continue
             self.gu.call(['rm', '--cached', path], False)
 
+            # commit one file to avoid using a pack file of a large number of files
             self.gu.call(['commit',
                           '--author=%s <%s@%s>' % (getpass.getuser(), getpass.getuser(), platform.node()),
                           '--message=', '--allow-empty-message'], False)
@@ -946,10 +948,14 @@ class Kaleido:
             # add a symlink from .git to .kaleido-git to make git continue to work
             self.link_kaleido_git(root)
 
-            # add .kaleido-git
-            # assuming there is no other git repositories in the directory (unlikely)
+            # add .kaleido-git/index
             # once this is done, the working copy will be tracked even though it has .git symlink
-            self.gu.call(['add', '--all', '--force', fixed_git_path])
+            self.gu.call(['add', os.path.join(fixed_git_path, 'index')])
+
+            # commit one file to avoid using a pack file of a large number of files
+            self.gu.call(['commit',
+                          '--author=%s <%s@%s>' % (getpass.getuser(), getpass.getuser(), platform.node()),
+                          '--message=', '--allow-empty-message'], False)
 
         return True
 
@@ -977,8 +983,7 @@ class Kaleido:
             # restore original .git name
             os.rename(fixed_git_path, native_git_path)
 
-            # exclude all files of .kaledo-git as well as its working copy
-            #self.gu.call(['rm', '-r', '--cached', fixed_git_path])
+            # exclude all files of .kaleido-git as well as its working copy
             self.gu.call(['rm', '-r', '--cached', root])
 
         return True
