@@ -811,7 +811,7 @@ class Kaleido:
                         local_head = self.gu.call(['merge-base', 'master', 'master'], False)[1]
                         remote_head = self.gu.call(['merge-base', branch, branch], False)[1]
                         has_common_ancestor, common_ancestor = self.gu.call(['merge-base', 'master', branch], False)
-                        if has_common_ancestor:
+                        if has_common_ancestor == 0:    # 0 is the success exit code
                             if remote_head == common_ancestor:
                                 # optimization; if the local master has the remote master as a common ancestor,
                                 # the remote master is just lagging behind and will catch up the local master
