@@ -83,6 +83,8 @@ class GitUtil:
             if dest:
                 dest.write(line)
             if tee:
+                # TODO: the following may cause UnicodeEncodeError on Windows
+                #       when the line contains characters incompatible to the console's coding
                 tee.write(self.options.msg_prefix() + '  ' + line)
         src.close()
 
