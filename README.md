@@ -68,9 +68,9 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 * To exclude git repositories from synchronization,
 > $ kaleido untrack-git PATH<br/>
 
-* When .kaleido directory becomes too big, on Machine A,
+* If .kaleido directory becomes too big, on Machine A,
 > $ kaleido -b 127.0.0.1:50000 -D squash<br/>
-  * All other machines synchronized with Machine A will compact their own .kaleido directory as well
+  * All other machines synchronized with Machine A will compact their own .kaleido directory if they are also using -D option
 
 * To execute any custom git command (e.g., to checkout old files),
 > $ kaleido GIT-COMMAND ARGUMENTS ...<br/>
