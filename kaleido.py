@@ -691,7 +691,10 @@ class Kaleido:
         self.gu.call(['branch', 'new_master', tree_id])
         self.gu.call(['checkout', 'new_master'])
         self.gu.call(['branch', '-M', 'new_master', 'master'])
-        # TODO: delete all non-master branch
+        for branch in self.gu.list_git_branches():
+            if not branch.startswith('sync_inbox_'):
+                continue
+            self.gu.call(['branch', '-D', branch])
         self.gu.call(['repack', '-A', '-d'])
         self.gu.call(['prune'])
 
@@ -848,7 +851,10 @@ class Kaleido:
                                 if succeeding:
                                     succeeding = self.gu.call(['branch', '-M', 'new_master', 'master'], False)[0] == 0
                                 if succeeding:
-                                    # TODO: delete all non-master branch
+                                    for branch in self.gu.list_git_branches():
+                                        if not branch.startswith('sync_inbox_'):
+                                            continue
+                                        self.gu.call(['branch', '-D', branch], False)
                                     self.gu.call(['repack', '-A', '-d'], False)
                                     self.gu.call(['prune'], False)
                                 if not succeeding:
