@@ -816,6 +816,7 @@ class Kaleido:
                                 # optimization; if the local master has the remote master as a common ancestor,
                                 # the remote master is just lagging behind and will catch up the local master
                                 # then, the local side just waits for the remote to pull more commits
+                                pass
                             else:
                                 # typical merge---merge local master with the origin
                                 self.gu.call(['merge', '--strategy=recursive'] + git_strategy_option + [branch], False)
