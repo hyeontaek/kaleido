@@ -24,9 +24,11 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 > $ git clone git@github.com:hyeontaek/kaleido.git
 
 * (Add the kaleido directory to PATH)
-* Requires: Python 3
-* Requires: inotify-tools (for Linux), pywin32 (for Windows)
-* Caution: MacOS X and other platforms are not tested; the local file change monitor will not work (not implemented)
+* Requires: Python 3.3 or later
+* Requires: git (1.7.0 or later)
+* Requires: inotify-tools (for Linux; 3.13 or later), pywin32 (for Windows; build 218 or later)
+* Lower versions may also work
+* MacOS X and other platforms are not tested; the local file change monitor will not work (not implemented)
 
 
 ## Basic usage
@@ -68,7 +70,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
 * When .kaleido directory becomes too big, on Machine A,
 > $ kaleido -b 127.0.0.1:50000 -D squash<br/>
-  * All other machines synchronizing will also compact .kaleido directory
+  * All other machines synchronized with Machine A will compact their own .kaleido directory as well
 
 * To execute any custom git command (e.g., to checkout old files),
 > $ kaleido GIT-COMMAND ARGUMENTS ...<br/>
