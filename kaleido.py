@@ -587,7 +587,7 @@ class Kaleido:
         self.gu.call(['config', 'gc.auto', '0'])
         self.gu.call(['config', 'gc.autopacklimit', '0'])
         self.gu.call(['config', 'receive.autogc', 'false'])
-        # avoid creating any large packs
+        # avoid creating large packs after commit/repack (this does not apply for packs transferred from the remote repository)
         self.gu.call(['config', 'pack.packSizeLimit', '1m'])
         # unpack (virtually) all packs; this applies to packs transferred and then transferred back via git push on multiple repositories
         self.gu.call(['config', 'transfer.unpackLimit', '1000000000'])
@@ -626,6 +626,7 @@ class Kaleido:
         open(os.path.join(meta_path, 'info', 'exclude'), 'at').write('.git' + '\n')
         open(os.path.join(meta_path, 'git-daemon-export-ok'), 'wt')
         open(os.path.join(meta_path, 'inbox-id'), 'wt').write(inbox_id + '\n')
+        self.gu.call(['repack', '-a', '-d'])    # to convert large pack files into small pack files bound to pack.packSizeLimit
         self.gu.call(['checkout'])
         return True
 
