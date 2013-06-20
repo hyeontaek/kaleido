@@ -585,14 +585,14 @@ class Kaleido:
     def _reset_config(self):
         # turn off cr/lf conversion
         self.gu.call(['config', 'core.autocrlf', 'false'])
-        # prevent automaic gc/packing
-        self.gu.call(['config', 'gc.auto', '0'])
-        self.gu.call(['config', 'gc.autopacklimit', '0'])
-        self.gu.call(['config', 'receive.autogc', 'false'])
-        # avoid creating large packs after commit/repack (this does not apply for packs transferred from the remote repository)
-        self.gu.call(['config', 'pack.packSizeLimit', '1m'])
-        # unpack (virtually) all packs; this applies to packs transferred and then transferred back via git push on multiple repositories
-        self.gu.call(['config', 'transfer.unpackLimit', '1000000000'])
+        # # prevent automaic gc/packing
+        # self.gu.call(['config', 'gc.auto', '0'])
+        # self.gu.call(['config', 'gc.autopacklimit', '0'])
+        # self.gu.call(['config', 'receive.autogc', 'false'])
+        # # avoid creating large packs after commit/repack (this does not apply for packs transferred from the remote repository)
+        # self.gu.call(['config', 'pack.packSizeLimit', '1m'])
+        # # unpack (virtually) all packs; this applies to packs transferred and then transferred back via git push on multiple repositories
+        # self.gu.call(['config', 'transfer.unpackLimit', '1000000000'])
 
     def init(self):
         inbox_id = '%d_%d' % (time.time(), random.randint(0, 999999))
@@ -811,7 +811,7 @@ class Kaleido:
                         local_head = self.gu.call(['merge-base', 'master', 'master'], False)[1]
                         remote_head = self.gu.call(['merge-base', branch, branch], False)[1]
                         has_common_ancestor, common_ancestor = self.gu.call(['merge-base', 'master', branch], False)
-                        if has_common_ancestor == 0:    # 0 is the success exit code
+                        if has_common_ancestor == 0:    # 0 is the exit code for a success
                             if remote_head == common_ancestor:
                                 # optimization; if the local master has the remote master as a common ancestor,
                                 # the remote master is just lagging behind and will catch up the local master
@@ -820,10 +820,10 @@ class Kaleido:
                             else:
                                 # typical merge---merge local master with the origin
                                 self.gu.call(['merge', '--strategy=recursive'] + git_strategy_option + [branch], False)
-                            # TODO: potential race condition; if the remote pushes a new head before the following,
-                            # the change notification may be ignored because no new branch is accessible
-                            # do not delete branch to possibly help later push become efficient
-                            #self.gu.call(['branch', '--delete', branch], False)
+                            # we should not delete the merged branch because later pushes onto this branch will be
+                            # efficiently done; if we delete the branch, each push will incur (almost) the full repository
+                            # retransmission
+                            # self.gu.call(['branch', '--delete', branch], False)
                             pass
                         elif branch == 'sync_inbox_origin':
                             # the origin has been squashed; apply it locally
@@ -846,10 +846,11 @@ class Kaleido:
                                     print(self.options.msg_prefix() + 'failed to propagate squash')
                         else:
                             # ignore squash from non-origin sources
-                            # branch -D is destructive,
-                            # but this is quite safe when performed only on a local copy of others' branch
-                            # do not delete branch to possibly help later push become efficient
-                            #self.gu.call(['branch', '-D', branch], False)
+                            # # branch -D is destructive,
+                            # # but this is quite safe when performed only on a local copy of others' branch
+                            # # do not delete branch to possibly help later push become efficient
+                            # we should not delete the merged branch (see above)
+                            # self.gu.call(['branch', '-D', branch], False)
                             pass
 
                     if last_commit_id != self.gu.get_last_commit_id():
