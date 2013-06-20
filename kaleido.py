@@ -113,6 +113,31 @@ class GitUtil:
 
         return (ret, stdout_buf.getvalue())
 
+    def call_generic(self, args, must_succeed=True):
+        #if not self.options.quiet:
+        #    print(self.options.msg_prefix() + '  $ ' + ' '.join(args))
+        proc = subprocess.Popen(args,
+                                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        proc.stdin.close()
+
+        threads = []
+        stdout_buf = io.StringIO()
+        stderr_buf = None
+        tee_stdout = None if self.options.quiet else sys.stdout
+        tee_stderr = None if self.options.quiet else sys.stderr
+        threads.append(threading.Thread(target=self._copy_output, args=(proc.stdout, stdout_buf, tee_stdout)))
+        threads.append(threading.Thread(target=self._copy_output, args=(proc.stderr, stderr_buf, tee_stderr)))
+        for thread in threads:
+            thread.start()
+        ret = proc.wait()
+        for thread in threads:
+            thread.join()
+
+        if must_succeed and ret != 0:
+            raise RuntimeError('git returned %d' % ret)
+
+        return (ret, stdout_buf.getvalue())
+
     def execute(self, args, must_succeed=True):
         #if not self.options.quiet:
         #    print(self.options.msg_prefix() + '  $ ' + ' '.join([self.options.git] + self.common_args + args))
@@ -790,7 +815,6 @@ class Kaleido:
                     for branch in self.gu.list_git_branches():
                         if not branch.startswith('sync_inbox_'):
                             continue
-                        local_head = self.gu.call(['merge-base', 'master', 'master'], False)[1]
                         remote_head = self.gu.call(['merge-base', branch, branch], False)[1]
                         has_common_ancestor, common_ancestor = self.gu.call(['merge-base', 'master', branch], False)
                         if has_common_ancestor == 0:    # 0 is the exit code for a success
@@ -869,7 +893,8 @@ class Kaleido:
                     for timespan in self._no_change_notifications:
                         if last_diff < timespan and now - prev_last_change >= timespan:
                             last_diff = now - prev_last_change
-                            print(self.options.msg_prefix() + 'no changes in ' + TimeUtil.get_timediff_str(last_diff))
+                            if not self.options.quiet:
+                                print(self.options.msg_prefix() + 'no changes in ' + TimeUtil.get_timediff_str(last_diff))
                             break
                 else:
                     last_diff = now - prev_last_change
@@ -892,8 +917,7 @@ class Kaleido:
 
         return True
 
-    @staticmethod
-    def link_kaleido_git(path):
+    def link_kaleido_git(self, path):
         if not platform.platform().startswith('Linux') and not platform.platform().startswith('Windows'):
             raise Exception('not supported platform')
 
@@ -903,10 +927,9 @@ class Kaleido:
         if platform.platform().startswith('Linux'):
             os.symlink('.kaleido-git', native_git_path)
         elif platform.platform().startswith('Windows'):
-            subprocess.call(['cmd', '/c', 'mklink', '/j', native_git_path, fixed_git_path])
+            self.gu.call_generic(['cmd', '/c', 'mklink', '/j', native_git_path, fixed_git_path])
 
-    @staticmethod
-    def unlink_kaleido_git(path):
+    def unlink_kaleido_git(self, path):
         if not platform.platform().startswith('Linux') and not platform.platform().startswith('Windows'):
             raise Exception('not supported platform')
 
