@@ -585,14 +585,6 @@ class Kaleido:
     def _reset_config(self):
         # turn off cr/lf conversion
         self.gu.call(['config', 'core.autocrlf', 'false'])
-        # # prevent automaic gc/packing
-        # self.gu.call(['config', 'gc.auto', '0'])
-        # self.gu.call(['config', 'gc.autopacklimit', '0'])
-        # self.gu.call(['config', 'receive.autogc', 'false'])
-        # # avoid creating large packs after commit/repack (this does not apply for packs transferred from the remote repository)
-        # self.gu.call(['config', 'pack.packSizeLimit', '1m'])
-        # # unpack (virtually) all packs; this applies to packs transferred and then transferred back via git push on multiple repositories
-        # self.gu.call(['config', 'transfer.unpackLimit', '1000000000'])
 
     def init(self):
         inbox_id = '%d_%d' % (time.time(), random.randint(0, 999999))
@@ -628,7 +620,7 @@ class Kaleido:
         open(os.path.join(meta_path, 'info', 'exclude'), 'at').write('.git' + '\n')
         open(os.path.join(meta_path, 'git-daemon-export-ok'), 'wt')
         open(os.path.join(meta_path, 'inbox-id'), 'wt').write(inbox_id + '\n')
-        #self.gu.call(['repack', '-a', '-d'])    # to convert large pack files into small pack files bound to pack.packSizeLimit
+        self.gu.call(['repack', '-a', '-d'])    # to convert large pack files into small pack files bound to pack.packSizeLimit
         self.gu.call(['checkout'])
         return True
 
@@ -673,7 +665,7 @@ class Kaleido:
         self.gu.call(['branch', 'new_master', tree_id])
         self.gu.call(['checkout', 'new_master'])
         self.gu.call(['branch', '-M', 'new_master', 'master'])
-        #self.gu.call(['repack', '-A', '-d'])
+        self.gu.call(['repack', '-A', '-d'])
         self.gu.call(['prune'])
 
         event = threading.Event()
@@ -721,11 +713,6 @@ class Kaleido:
                 continue
             self.gu.call(['add', '--force', path], False)
 
-            # commit local changes to local master
-            # self.gu.call(['commit',
-            #               '--author=%s <%s@%s>' % (getpass.getuser(), getpass.getuser(), platform.node()),
-            #               '--message=', '--allow-empty-message'], False)
-
         # find removed files
         to_rm = self.gu.call(['ls-files', '--deleted', '-z'] + exclude_args + \
                              [self.options.working_copy_root], False)[1]
@@ -735,11 +722,6 @@ class Kaleido:
             if os.path.isdir(os.path.join(self.options.working_copy_root, path)):
                 continue
             self.gu.call(['rm', '--cached', path], False)
-
-            # commit local changes to local master
-            # self.gu.call(['commit',
-            #               '--author=%s <%s@%s>' % (getpass.getuser(), getpass.getuser(), platform.node()),
-            #               '--message=', '--allow-empty-message'], False)
 
     def _sync(self, sync_forever):
         self.gu.detect_working_copy_root()
@@ -840,7 +822,7 @@ class Kaleido:
                                 if succeeding:
                                     succeeding = self.gu.call(['branch', '-M', 'new_master', 'master'], False)[0] == 0
                                 if succeeding:
-                                    #self.gu.call(['repack', '-A', '-d'], False)
+                                    self.gu.call(['repack', '-A', '-d'], False)
                                     self.gu.call(['prune'], False)
                                 if not succeeding:
                                     print(self.options.msg_prefix() + 'failed to propagate squash')
@@ -977,11 +959,6 @@ class Kaleido:
             # once this is done, the working copy will be tracked even though it has .git symlink
             self.gu.call(['add', os.path.join(fixed_git_path, 'index')])
 
-            # commit local changes to local master
-            # self.gu.call(['commit',
-            #               '--author=%s <%s@%s>' % (getpass.getuser(), getpass.getuser(), platform.node()),
-            #               '--message=', '--allow-empty-message'], False)
-
         return True
 
     def untrack_git(self, path):
@@ -989,6 +966,8 @@ class Kaleido:
         self.gu.set_common_args(self.gu.get_path_args())
 
         self._untrack_git(path)
+
+        return True
 
     def _untrack_git(self, path):
         for root, dirs, _ in os.walk(path):
@@ -1013,12 +992,6 @@ class Kaleido:
 
             # exclude all files of .kaleido-git as well as its working copy
             self.gu.call(['rm', '-r', '--cached', '--ignore-unmatch', root])
-
-            # commit local changes to local master
-            #self.gu.call(['commit',
-            #              '--author=%s <%s@%s>' % (getpass.getuser(), getpass.getuser(), platform.node()),
-            #              '--message=', '--allow-empty-message'], False)
-        return True
 
     def git_command(self, args):
         self.gu.detect_working_copy_root()
