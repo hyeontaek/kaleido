@@ -710,14 +710,9 @@ class Kaleido:
         for path in to_add.split('\0'):
             if not path:
                 continue
-            if os.path.isdir(path):
+            if os.path.isdir(os.path.join(self.options.working_copy_root, path)):
                 continue
             self.gu.call(['add', '--force', path], False)
-
-            # commit one file to avoid using a pack file of a large number of files
-            # self.gu.call(['commit',
-            #               '--author=%s <%s@%s>' % (getpass.getuser(), getpass.getuser(), platform.node()),
-            #               '--message=', '--allow-empty-message'], False)
 
         # find removed files
         to_rm = self.gu.call(['ls-files', '--deleted', '-z'] + exclude_args + \
@@ -725,14 +720,9 @@ class Kaleido:
         for path in to_rm.split('\0'):
             if not path:
                 continue
-            if os.path.isdir(path):
+            if os.path.isdir(os.path.join(self.options.working_copy_root, path)):
                 continue
             self.gu.call(['rm', '--cached', path], False)
-
-            # commit one file to avoid using a pack file of a large number of files
-            # self.gu.call(['commit',
-            #               '--author=%s <%s@%s>' % (getpass.getuser(), getpass.getuser(), platform.node()),
-            #               '--message=', '--allow-empty-message'], False)
 
     def _sync(self, sync_forever):
         self.gu.detect_working_copy_root()
@@ -755,6 +745,8 @@ class Kaleido:
         local_change_monitor.start()
         remote_change_monitor = RemoteChangeMonitor(self.options, event)
         remote_change_monitor.start()
+
+        self.repair_keleido_git_links()
 
         try:
             prev_last_change = self.gu.get_last_commit_time()
@@ -934,8 +926,8 @@ class Kaleido:
             if not os.path.exists(os.path.join(root, '.git')):
                 continue
             if os.path.exists(os.path.join(root, '.kaleido-git')):
-                # already tracking
-                continue
+                # already tracking - try to untrack first
+                self._untrack_git(root)
 
             # do not recurse into it
             dirs.remove('.git')
@@ -951,12 +943,7 @@ class Kaleido:
 
             # add .kaleido-git/index
             # once this is done, the working copy will be tracked even though it has .git symlink
-            self.gu.call(['add', os.path.join(fixed_git_path, 'index')])
-
-            # commit one file to avoid using a pack file of a large number of files
-            # self.gu.call(['commit',
-            #               '--author=%s <%s@%s>' % (getpass.getuser(), getpass.getuser(), platform.node()),
-            #               '--message=', '--allow-empty-message'], False)
+            self.gu.call(['add', fixed_git_path])
 
         return True
 
@@ -964,6 +951,9 @@ class Kaleido:
         self.gu.detect_working_copy_root()
         self.gu.set_common_args(self.gu.get_path_args())
 
+        self._untrack_git(path)
+
+    def _untrack_git(self, path):
         for root, dirs, _ in os.walk(path):
             if not os.path.exists(os.path.join(root, '.git')):
                 continue
@@ -985,7 +975,7 @@ class Kaleido:
             os.rename(fixed_git_path, native_git_path)
 
             # exclude all files of .kaleido-git as well as its working copy
-            self.gu.call(['rm', '-r', '--cached', root])
+            self.gu.call(['rm', '-r', '--cached', '--ignore-unmatch', root])
 
         return True
 
