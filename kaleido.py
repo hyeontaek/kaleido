@@ -822,7 +822,9 @@ class Kaleido:
                                 self.gu.call(['merge', '--strategy=recursive'] + git_strategy_option + [branch], False)
                             # TODO: potential race condition; if the remote pushes a new head before the following,
                             # the change notification may be ignored because no new branch is accessible
-                            self.gu.call(['branch', '--delete', branch], False)
+                            # do not delete branch to possibly help later push become efficient
+                            #self.gu.call(['branch', '--delete', branch], False)
+                            pass
                         elif branch == 'sync_inbox_origin':
                             # the origin has been squashed; apply it locally
                             if not self.options.allow_destructive:
@@ -846,7 +848,9 @@ class Kaleido:
                             # ignore squash from non-origin sources
                             # branch -D is destructive,
                             # but this is quite safe when performed only on a local copy of others' branch
-                            self.gu.call(['branch', '-D', branch], False)
+                            # do not delete branch to possibly help later push become efficient
+                            #self.gu.call(['branch', '-D', branch], False)
+                            pass
 
                     if last_commit_id != self.gu.get_last_commit_id():
                         changed = True
