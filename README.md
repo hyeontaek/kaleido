@@ -23,5 +23,5 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 INSTALLATION
 ------------
 * Requires: Python 3
-* Requires: inotify-tools (for linux), pywin32
+* Requires: inotify-tools (for Linux), pywin32 (for Windows)
 
