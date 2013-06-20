@@ -581,6 +581,7 @@ class Kaleido:
         self.gu = GitUtil(self.options)
 
     def _reset_config(self):
+        self.gu.call(['config', 'core.autocrlf', 'false'])
         self.gu.call(['config', 'gc.auto', '0'])
         self.gu.call(['config', 'gc.autopacklimit', '0'])
         self.gu.call(['config', 'receive.autogc', 'false'])
@@ -712,6 +713,10 @@ class Kaleido:
                 continue
             self.gu.call(['add', '--force', path], False)
 
+            self.gu.call(['commit',
+                          '--author=%s <%s@%s>' % (getpass.getuser(), getpass.getuser(), platform.node()),
+                          '--message=', '--allow-empty-message'], False)
+
         # find removed files
         to_rm = self.gu.call(['ls-files', '--deleted', '-z'] + exclude_args + \
                              [self.options.working_copy_root], False)[1]
@@ -721,6 +726,10 @@ class Kaleido:
             if os.path.isdir(path):
                 continue
             self.gu.call(['rm', '--cached', path], False)
+
+            self.gu.call(['commit',
+                          '--author=%s <%s@%s>' % (getpass.getuser(), getpass.getuser(), platform.node()),
+                          '--message=', '--allow-empty-message'], False)
 
     def _sync(self, sync_forever):
         self.gu.detect_working_copy_root()
