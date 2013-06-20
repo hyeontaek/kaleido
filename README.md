@@ -21,9 +21,11 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
 ## Installation
 
+> $ git clone git@github.com:hyeontaek/kaleido.git
+* (Add the kaleido directory to PATH)
 * Requires: Python 3
 * Requires: inotify-tools (for Linux), pywin32 (for Windows)
-* MacOS X is not tested; the local file change monitor will not work (not implemented)
+* Caution: MacOS X and other platforms are not tested; the local file change monitor will not work (not implemented)
 
 
 ## Basic usage
@@ -31,14 +33,14 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 ### Initialization
 
 * On Machine A,
-> $ mkdir /home/USER/sync<br/>
-> $ cd /home/USER/sync<br/>
+> $ mkdir ~/sync<br/>
+> $ cd ~/sync<br/>
 > $ kaleido init<br/>
 
 * On Machine B, C, ... (new machines can be added later),
-> $ mkdir /home/USER/sync<br/>
-> $ cd /home/USER/sync<br/>
-> $ kaleido clone USER@MachineA:/home/USER/sync<br/>
+> $ mkdir ~/sync<br/>
+> $ cd ~/sync<br/>
+> $ kaleido clone USER@MachineA:~/sync<br/>
 
 ### Synchronization
 
