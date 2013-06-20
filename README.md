@@ -46,7 +46,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 * Conflicts are resolved silently; manually fix them by editing the files or checking out one version (see executing any custom git command)
 
 * On Machine A,
-> $ kaleido -b 0.0.0.0:50000 sync-forever &<br/>
+> $ kaleido -B -b 0.0.0.0:50000 sync-forever &<br/>
 
 * On other machines,
 > $ kaleido -b MachineA:50000 sync-forever &<br/>
