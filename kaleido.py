@@ -991,9 +991,9 @@ class Kaleido:
             # add a symlink from .git to .kaleido-git to make git continue to work
             self.link_kaleido_git(root)
 
-            # add .kaleido-git/index
+            # add .kaleido-git/HEAD
             # once this is done, the working copy will be tracked even though it has .git symlink
-            self.gu.call(['add', os.path.join(fixed_git_path, 'index')])
+            self.gu.call(['add', os.path.join(fixed_git_path, 'HEAD')])
 
         return True
 
