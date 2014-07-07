@@ -612,6 +612,8 @@ class Kaleido:
     def _reset_config(self):
         # turn off cr/lf conversion
         self.gu.call(['config', 'core.autocrlf', 'false'])
+        # disable side-band-64k that causes hangs in msysgit clients
+        self.gu.call(['config', 'sendpack.sideband', 'false'])
 
     def init(self):
         inbox_id = '%d_%d' % (time.time(), random.randint(0, 999999))
