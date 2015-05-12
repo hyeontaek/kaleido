@@ -109,7 +109,9 @@ class GitUtil:
             thread.join()
 
         if must_succeed and ret != 0:
-            raise RuntimeError('git returned %d' % ret)
+            # TODO: the following may cause UnicodeEncodeError on Windows
+            #       when the line contains characters incompatible to the console's coding
+            raise RuntimeError('git returned %d while executing %s' % (ret, str(args)))
 
         return (ret, stdout_buf.getvalue())
 
@@ -134,7 +136,9 @@ class GitUtil:
             thread.join()
 
         if must_succeed and ret != 0:
-            raise RuntimeError('git returned %d' % ret)
+            # TODO: the following may cause UnicodeEncodeError on Windows
+            #       when the line contains characters incompatible to the console's coding
+            raise RuntimeError('command returned %d while executing %s' % (ret, str(args)))
 
         return (ret, stdout_buf.getvalue())
 
